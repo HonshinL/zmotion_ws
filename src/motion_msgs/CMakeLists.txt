@@ -16,8 +16,9 @@ find_package(geometry_msgs REQUIRED)
 rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/MotionTarget.msg"
   "msg/MotionStatus.msg"
-  "srv/ConvertXDF2CAM.srv"
-  "action/ConvertXDF2CAM.action"
+  "srv/ConvertDxfToCam.srv"
+  "srv/ConvertDxfToXml.srv"
+  "action/ConvertDxfToCam.action"
   DEPENDENCIES 
     std_msgs
     sensor_msgs

@@ -1,0 +1,10 @@
+# Request
+builtin_interfaces/Time stamp
+string dxf_file_path         # 输入DXF文件路径
+
+---
+# Response
+builtin_interfaces/Time stamp
+bool success                  # 转换是否成功
+string message                # 状态消息
+string xml_file_path         # 输出的XML文件路径

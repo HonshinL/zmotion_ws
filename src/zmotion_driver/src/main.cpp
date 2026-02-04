@@ -6,17 +6,17 @@ int main(int argc, char * argv[]) {
     // 初始化ROS2
     rclcpp::init(argc, argv);
     
-    // 创建ZmcController实例（自动初始化ROS2节点和控制器连接）
+    // 创建ZmcController实例（自动初始化ROS2节点）
     auto zmc_controller = std::make_shared<ZmcController>("zmc_controller");
     
-    // 开始发布数据
-    zmc_controller->startPublishing();
+    // 显式启动控制器（建立连接并开始发布）
+    zmc_controller->start();
     
     // 运行节点
     rclcpp::spin(zmc_controller);
     
-    // 停止发布并关闭
-    zmc_controller->stopPublishing();
+    // 停止控制器并关闭
+    zmc_controller->stop();
     rclcpp::shutdown();
     
     return 0;

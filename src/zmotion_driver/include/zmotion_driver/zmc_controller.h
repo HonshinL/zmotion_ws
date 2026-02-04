@@ -8,6 +8,7 @@
 #include "std_msgs/msg/header.hpp"
 #include "sensor_msgs/msg/joint_state.hpp"
 #include "motion_msgs/msg/motion_status.hpp"
+#include "motion_msgs/srv/convert_dxf_to_xml.hpp"
 #include "zmotion_driver/zmcaux.h"
 
 using namespace std::chrono_literals;
@@ -15,7 +16,7 @@ using namespace std::chrono_literals;
 class ZmcController : public rclcpp::Node {
 public:
     ZmcController();
-    ZmcController(const std::string& node_name);
+    ZmcController(const std::string& node_name = "zmc_controller");
     ~ZmcController();
 
     /**
@@ -56,6 +57,25 @@ public:
      * @brief 停止数据发布循环
      */
     void stopPublishing();
+
+    /**
+     * @brief 显式启动控制器（连接并开始发布）
+     */
+    void start();
+
+    /**
+     * @brief 停止控制器（停止发布并断开连接）
+     */
+    void stop();
+
+    // DXF到XML转换服务
+    /**
+     * @brief 处理DXF到XML转换的服务请求
+     * @param request 服务请求
+     * @param response 服务响应
+     */
+    void handleConvertDxfToXml(const std::shared_ptr<motion_msgs::srv::ConvertDxfToXml::Request> request,
+                              std::shared_ptr<motion_msgs::srv::ConvertDxfToXml::Response> response);
 
     // 位置相关方法
     /**
@@ -195,6 +215,7 @@ private:
     int axis_;  ///< 监控的轴号
     rclcpp::TimerBase::SharedPtr timer_;  ///< 定时器
     rclcpp::Publisher<motion_msgs::msg::MotionStatus>::SharedPtr motion_status_pub_;  ///< 运动状态发布者
+    rclcpp::Service<motion_msgs::srv::ConvertDxfToXml>::SharedPtr convert_dxf_to_xml_service_;  ///< DXF到XML转换服务
 };
 
 #endif // ZMC_CONTROLLER_H
