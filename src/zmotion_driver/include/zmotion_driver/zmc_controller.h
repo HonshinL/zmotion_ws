@@ -4,8 +4,10 @@
 #include <string>
 #include <chrono>
 #include "rclcpp/rclcpp.hpp"
+#include <atomic>
 #include "std_msgs/msg/float64.hpp"
 #include "std_msgs/msg/header.hpp"
+#include "std_msgs/msg/string.hpp"
 #include "sensor_msgs/msg/joint_state.hpp"
 #include "motion_msgs/msg/motion_status.hpp"
 #include "motion_msgs/srv/convert_dxf_to_xml.hpp"
@@ -209,13 +211,16 @@ private:
     // ZMC控制器相关成员
     ZMC_HANDLE handle_;      ///< 控制器句柄
     bool is_connected_;      ///< 连接状态
+    std::atomic<bool> connecting_; ///< 正在连接标志
     std::string controller_ip_;  ///< 控制器IP地址
+    int connect_search_timeout_ms_{1000}; ///< 搜索超时 (ms)
 
     // ROS2相关成员
     int axis_;  ///< 监控的轴号
     rclcpp::TimerBase::SharedPtr timer_;  ///< 定时器
     rclcpp::Publisher<motion_msgs::msg::MotionStatus>::SharedPtr motion_status_pub_;  ///< 运动状态发布者
     rclcpp::Service<motion_msgs::srv::ConvertDxfToXml>::SharedPtr convert_dxf_to_xml_service_;  ///< DXF到XML转换服务
+    rclcpp::Publisher<std_msgs::msg::String>::SharedPtr convert_status_pub_;  ///< DXF->XML 转换状态发布者
 };
 
 #endif // ZMC_CONTROLLER_H
