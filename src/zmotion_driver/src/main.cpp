@@ -1,5 +1,4 @@
 #include <memory>
-
 #include "rclcpp/rclcpp.hpp"
 #include "zmotion_driver/zmc_controller.h"
 
