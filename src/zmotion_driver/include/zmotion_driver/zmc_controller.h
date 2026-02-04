@@ -217,10 +217,14 @@ private:
 
     // ROS2相关成员
     int axis_;  ///< 监控的轴号
+    std::vector<int> axes_;  ///< 轴列表
     rclcpp::TimerBase::SharedPtr timer_;  ///< 定时器
     rclcpp::Publisher<motion_msgs::msg::MotionStatus>::SharedPtr motion_status_pub_;  ///< 运动状态发布者
     rclcpp::Service<motion_msgs::srv::ConvertDxfToXml>::SharedPtr convert_dxf_to_xml_service_;  ///< DXF到XML转换服务
     rclcpp::Publisher<std_msgs::msg::String>::SharedPtr convert_status_pub_;  ///< DXF->XML 转换状态发布者
+    
+    static constexpr int NUM_AXES = 5;  ///< 轴数量
+    static constexpr int AXES[NUM_AXES] = {0, 1, 2, 4, 5};  ///< 轴列表定义
 };
 
 #endif // ZMC_CONTROLLER_H

@@ -167,18 +167,21 @@ void ZmcController::initROS() {
     std::string ip = this->declare_parameter<std::string>("controller_ip", "192.168.0.11");
     axis_ = this->declare_parameter<int>("monitoring_axis", 0);
     connect_search_timeout_ms_ = this->declare_parameter<int>("controller_connect_search_timeout_ms", 1000);
+    
+    // 初始化轴列表（假设支持4个轴）
+    axes_ = {0, 1, 2, 3};
 
     // 创建发布者 (Publisher)
     // 发布运动状态
-    motion_status_pub_ = this->create_publisher<motion_msgs::msg::MotionStatus>("zmc/motion_status", 10);
+    motion_status_pub_ = this->create_publisher<motion_msgs::msg::MotionStatus>("zmc_pub/motion_status", 10);
 
     // 创建DXF到XML转换服务
     convert_dxf_to_xml_service_ = this->create_service<motion_msgs::srv::ConvertDxfToXml>(
-        "zmc/convert_dxf_to_xml",
+        "zmc_srv/convert_dxf_to_xml",
         std::bind(&ZmcController::handleConvertDxfToXml, this, std::placeholders::_1, std::placeholders::_2));
 
     // 创建DXF转换状态发布者（异步任务状态通知）
-    convert_status_pub_ = this->create_publisher<std_msgs::msg::String>("zmc/convert_dxf_to_xml/status", 10);
+    convert_status_pub_ = this->create_publisher<std_msgs::msg::String>("zmc_pub/convert_dxf_to_xml/status", 10);
 
     // 不在构造/初始化阶段进行阻塞性连接，使用显式的 start() 方法进行连接和启动发布
 }
@@ -239,42 +242,60 @@ void ZmcController::stopPublishing() {
 void ZmcController::timer_callback() {
     if (!is_connected_) return;
 
-    float dpos_val = 0.0;
-    float mpos_val = 0.0;
-    float speed_val = 0.0;
-
-    // 从硬件读取数据
-    if (getDpos(axis_, dpos_val) && getMpos(axis_, mpos_val) && getCurSpeed(axis_, speed_val)) {
-        // 创建MotionStatus消息
-        auto motion_status_msg = motion_msgs::msg::MotionStatus();
+    // 创建MotionStatus消息
+    auto motion_status_msg = motion_msgs::msg::MotionStatus();
+    
+    // 填充Header
+    motion_status_msg.header.stamp = this->now();
+    motion_status_msg.header.frame_id = "zmc_status";
+    
+    // 填充JointState
+    auto& joint_state = motion_status_msg.joint_state;
+    joint_state.header = motion_status_msg.header;
+    
+    bool all_axes_success = true;
+    
+    // 读取所有轴的数据
+    for (int axis : axes_) {
+        float dpos_val = 0.0;
+        float mpos_val = 0.0;
+        float speed_val = 0.0;
         
-        // 填充Header
-        motion_status_msg.header.stamp = this->now();
-        motion_status_msg.header.frame_id = "zmc_controller";
+        // 从硬件读取数据
+        bool axis_success = getDpos(axis, dpos_val) && getMpos(axis, mpos_val) && getCurSpeed(axis, speed_val);
         
-        // 填充JointState
-        auto& joint_state = motion_status_msg.joint_state;
-        joint_state.header = motion_status_msg.header;
-        
-        // 设置关节名称 (假设有一个关节，名称为"axis_X"，其中X是轴号)
-        joint_state.name.push_back("axis_" + std::to_string(axis_));
-        
-        // 设置关节位置 (使用MPOS作为实际位置)
-        joint_state.position.push_back(mpos_val);
-        
-        // 设置关节速度
-        joint_state.velocity.push_back(speed_val);
-        
-        // 设置关节加速度 (暂不支持，留空)
-        // joint_state.effort.push_back(0.0); // 不支持力/力矩
-        
-        // 发布MotionStatus消息
+        if (axis_success) {
+            // 设置关节名称
+            joint_state.name.push_back("axis_" + std::to_string(axis));
+            
+            // 设置关节位置 (使用MPOS作为实际位置)
+            joint_state.position.push_back(mpos_val);
+            
+            // 设置关节速度
+            joint_state.velocity.push_back(speed_val);
+            
+            // 设置关节加速度 (暂不支持，留空)
+            // joint_state.effort.push_back(0.0); // 不支持力/力矩
+            
+            // 调试信息
+            RCLCPP_DEBUG(this->get_logger(), "轴 %d: MPOS=%.3f, Speed=%.3f", axis, mpos_val, speed_val);
+        } else {
+            RCLCPP_WARN(this->get_logger(), "无法读取轴 %d 的数据", axis);
+            all_axes_success = false;
+        }
+    }
+    
+    // 如果至少有一个轴读取成功，则发布消息
+    if (!joint_state.name.empty()) {
         motion_status_pub_->publish(motion_status_msg);
-
-        // (可选) 调试打印，实际运行时建议注释掉以节省 CPU
-        // RCLCPP_DEBUG(this->get_logger(), "Published MPOS: %.3f, Speed: %.3f", mpos_val, speed_val);
+        
+        if (all_axes_success) {
+            RCLCPP_DEBUG(this->get_logger(), "成功发布 %zu 个轴的状态数据", joint_state.name.size());
+        } else {
+            RCLCPP_WARN(this->get_logger(), "部分轴数据读取失败，成功发布 %zu 个轴的状态数据", joint_state.name.size());
+        }
     } else {
-        RCLCPP_WARN(this->get_logger(), "无法读取轴 %d 的数据", axis_);
+        RCLCPP_ERROR(this->get_logger(), "所有轴数据读取失败，无法发布状态消息");
     }
 }
 
