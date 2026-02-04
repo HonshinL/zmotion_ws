@@ -2,11 +2,17 @@
 #define ZMC_CONTROLLER_H
 
 #include <string>
+#include <chrono>
+#include "rclcpp/rclcpp.hpp"
+#include "std_msgs/msg/float64.hpp"
 #include "zmotion_driver/zmcaux.h"
 
-class ZmcController {
+using namespace std::chrono_literals;
+
+class ZmcController : public rclcpp::Node {
 public:
     ZmcController();
+    ZmcController(const std::string& node_name);
     ~ZmcController();
 
     /**
@@ -32,6 +38,21 @@ public:
      * @return 控制器句柄
      */
     ZMC_HANDLE getHandle() const;
+
+    /**
+     * @brief 初始化ROS2相关功能（参数、发布者、定时器）
+     */
+    void initROS();
+
+    /**
+     * @brief 启动数据发布循环
+     */
+    void startPublishing();
+
+    /**
+     * @brief 停止数据发布循环
+     */
+    void stopPublishing();
 
     // 位置相关方法
     /**
@@ -150,9 +171,10 @@ public:
     bool setAxisEnable(int axis, int enabled);
 
 private:
-    ZMC_HANDLE handle_;      ///< 控制器句柄
-    bool is_connected_;      ///< 连接状态
-    std::string controller_ip_;  ///< 控制器IP地址
+    /**
+     * @brief 定时器回调函数，定期读取并发布数据
+     */
+    void timer_callback();
 
     /**
      * @brief 检查错误码并返回结果
@@ -160,6 +182,17 @@ private:
      * @return true 成功，false 失败
      */
     bool checkError(int32 error_code) const;
+
+    // ZMC控制器相关成员
+    ZMC_HANDLE handle_;      ///< 控制器句柄
+    bool is_connected_;      ///< 连接状态
+    std::string controller_ip_;  ///< 控制器IP地址
+
+    // ROS2相关成员
+    int axis_;  ///< 监控的轴号
+    rclcpp::TimerBase::SharedPtr timer_;  ///< 定时器
+    rclcpp::Publisher<std_msgs::msg::Float64>::SharedPtr dpos_pub_;  ///< 命令位置发布者
+    rclcpp::Publisher<std_msgs::msg::Float64>::SharedPtr mpos_pub_;  ///< 反馈位置发布者
 };
 
 #endif // ZMC_CONTROLLER_H

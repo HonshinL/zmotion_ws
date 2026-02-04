@@ -2,7 +2,12 @@
 #include <cstring>
 #include <iostream>
 
-ZmcController::ZmcController() : handle_(nullptr), is_connected_(false) {
+ZmcController::ZmcController() : Node("zmc_status_publisher"), handle_(nullptr), is_connected_(false) {
+    initROS();
+}
+
+ZmcController::ZmcController(const std::string& node_name) : Node(node_name), handle_(nullptr), is_connected_(false) {
+    initROS();
 }
 
 ZmcController::~ZmcController() {
@@ -26,12 +31,12 @@ bool ZmcController::connect(const std::string& ip) {
     int32 result = ZAux_OpenEth(ip_buffer, &handle_);
     if (checkError(result)) {
         is_connected_ = true;
-        std::cout << "成功连接到ZMC控制器: " << ip << std::endl;
+        RCLCPP_INFO(this->get_logger(), "成功连接到ZMC控制器: %s", ip.c_str());
         return true;
     } else {
         handle_ = nullptr;
         is_connected_ = false;
-        std::cerr << "无法连接到ZMC控制器: " << ip << std::endl;
+        RCLCPP_ERROR(this->get_logger(), "无法连接到ZMC控制器: %s", ip.c_str());
         return false;
     }
 }
@@ -41,7 +46,7 @@ void ZmcController::disconnect() {
         ZAux_Close(handle_);
         handle_ = nullptr;
         is_connected_ = false;
-        std::cout << "已断开与ZMC控制器的连接: " << controller_ip_ << std::endl;
+        RCLCPP_INFO(this->get_logger(), "已断开与ZMC控制器的连接: %s", controller_ip_.c_str());
     }
 }
 
@@ -155,12 +160,73 @@ bool ZmcController::setAxisEnable(int axis, int enabled) {
     return checkError(result);
 }
 
+// 新方法实现
+void ZmcController::initROS() {
+    // 声明并获取参数
+    std::string ip = this->declare_parameter<std::string>("controller_ip", "192.168.0.11");
+    axis_ = this->declare_parameter<int>("monitoring_axis", 0);
+
+    // 创建发布者 (Publisher)
+    // 发布指令位置 (Command Position)
+    dpos_pub_ = this->create_publisher<std_msgs::msg::Float64>("zmc/dpos", 10);
+    // 发布反馈位置 (Actual Position)
+    mpos_pub_ = this->create_publisher<std_msgs::msg::Float64>("zmc/mpos", 10);
+
+    // 连接控制器
+    if (connect(ip)) {
+        RCLCPP_INFO(this->get_logger(), "已连接控制器: %s, 正在监控轴 %d", ip.c_str(), axis_);
+    } else {
+        RCLCPP_ERROR(this->get_logger(), "无法连接控制器!");
+    }
+}
+
+void ZmcController::startPublishing() {
+    // 创建定时器 (WallTimer)
+    // 每 20 毫秒执行一次 timer_callback (50Hz)
+    if (!timer_) {
+        timer_ = this->create_wall_timer(20ms, std::bind(&ZmcController::timer_callback, this));
+        RCLCPP_INFO(this->get_logger(), "开始发布控制器数据");
+    }
+}
+
+void ZmcController::stopPublishing() {
+    if (timer_) {
+        timer_.reset();
+        RCLCPP_INFO(this->get_logger(), "停止发布控制器数据");
+    }
+}
+
+void ZmcController::timer_callback() {
+    if (!is_connected_) return;
+
+    float dpos_val = 0.0;
+    float mpos_val = 0.0;
+
+    // 从硬件读取数据
+    if (getDpos(axis_, dpos_val) && getMpos(axis_, mpos_val)) {
+        // 封装并发布 DPOS
+        auto dpos_msg = std_msgs::msg::Float64();
+        dpos_msg.data = dpos_val;
+        dpos_pub_->publish(dpos_msg);
+
+        // 封装并发布 MPOS
+        auto mpos_msg = std_msgs::msg::Float64();
+        mpos_msg.data = mpos_val;
+        mpos_pub_->publish(mpos_msg);
+
+        // (可选) 调试打印，实际运行时建议注释掉以节省 CPU
+        // RCLCPP_DEBUG(this->get_logger(), "Published DPOS: %.3f, MPOS: %.3f", dpos_val, mpos_val);
+    } else {
+        RCLCPP_WARN(this->get_logger(), "无法读取轴 %d 的位置数据", axis_);
+    }
+}
+
 // 私有方法
 bool ZmcController::checkError(int32 error_code) const {
     if (error_code == ERR_OK) {
         return true;
     } else {
-        std::cerr << "ZMC控制器错误: 错误码 = " << error_code << std::endl;
+        RCLCPP_ERROR(this->get_logger(), "ZMC控制器错误: 错误码 = %d", error_code);
         return false;
     }
 }
