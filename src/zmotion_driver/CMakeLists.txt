@@ -19,6 +19,8 @@ endif()
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(std_msgs REQUIRED)
+find_package(sensor_msgs REQUIRED)
+find_package(motion_msgs REQUIRED)
 
 # 更明确地指定库路径，使用绝对路径或项目相关路径
 set(ZMOTION_LIB_DIR ${CMAKE_CURRENT_SOURCE_DIR}/lib)
@@ -38,15 +40,12 @@ add_executable(zmotion_test
 )
 
 # 设置目标的包含目录
-# PUBLIC表示这些包含目录将被传递给依赖该目标的其他目标
-# 对于仅在当前目标内部使用的包含目录，应该使用PRIVATE
-# 对于仅作为接口提供给其他目标的包含目录，应该使用INTERFACE
 target_include_directories(zmotion_test PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
     $<INSTALL_INTERFACE:include>
 )
 
-ament_target_dependencies(zmotion_test rclcpp std_msgs)
+ament_target_dependencies(zmotion_test rclcpp std_msgs sensor_msgs motion_msgs)
 
 target_link_libraries(zmotion_test
     # ${ZMOTION_LIBRARY}

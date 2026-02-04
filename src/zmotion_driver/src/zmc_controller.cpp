@@ -2,7 +2,7 @@
 #include <cstring>
 #include <iostream>
 
-ZmcController::ZmcController() : Node("zmc_status_publisher"), handle_(nullptr), is_connected_(false) {
+ZmcController::ZmcController() : Node("zmc_controller"), handle_(nullptr), is_connected_(false) {
     initROS();
 }
 
@@ -167,10 +167,8 @@ void ZmcController::initROS() {
     axis_ = this->declare_parameter<int>("monitoring_axis", 0);
 
     // 创建发布者 (Publisher)
-    // 发布指令位置 (Command Position)
-    dpos_pub_ = this->create_publisher<std_msgs::msg::Float64>("zmc/dpos", 10);
-    // 发布反馈位置 (Actual Position)
-    mpos_pub_ = this->create_publisher<std_msgs::msg::Float64>("zmc/mpos", 10);
+    // 发布运动状态
+    motion_status_pub_ = this->create_publisher<motion_msgs::msg::MotionStatus>("zmc/motion_status", 10);
 
     // 连接控制器
     if (connect(ip)) {
@@ -201,23 +199,40 @@ void ZmcController::timer_callback() {
 
     float dpos_val = 0.0;
     float mpos_val = 0.0;
+    float speed_val = 0.0;
 
     // 从硬件读取数据
-    if (getDpos(axis_, dpos_val) && getMpos(axis_, mpos_val)) {
-        // 封装并发布 DPOS
-        auto dpos_msg = std_msgs::msg::Float64();
-        dpos_msg.data = dpos_val;
-        dpos_pub_->publish(dpos_msg);
-
-        // 封装并发布 MPOS
-        auto mpos_msg = std_msgs::msg::Float64();
-        mpos_msg.data = mpos_val;
-        mpos_pub_->publish(mpos_msg);
+    if (getDpos(axis_, dpos_val) && getMpos(axis_, mpos_val) && getCurSpeed(axis_, speed_val)) {
+        // 创建MotionStatus消息
+        auto motion_status_msg = motion_msgs::msg::MotionStatus();
+        
+        // 填充Header
+        motion_status_msg.header.stamp = this->now();
+        motion_status_msg.header.frame_id = "zmc_controller";
+        
+        // 填充JointState
+        auto& joint_state = motion_status_msg.joint_state;
+        joint_state.header = motion_status_msg.header;
+        
+        // 设置关节名称 (假设有一个关节，名称为"axis_X"，其中X是轴号)
+        joint_state.name.push_back("axis_" + std::to_string(axis_));
+        
+        // 设置关节位置 (使用MPOS作为实际位置)
+        joint_state.position.push_back(mpos_val);
+        
+        // 设置关节速度
+        joint_state.velocity.push_back(speed_val);
+        
+        // 设置关节加速度 (暂不支持，留空)
+        // joint_state.effort.push_back(0.0); // 不支持力/力矩
+        
+        // 发布MotionStatus消息
+        motion_status_pub_->publish(motion_status_msg);
 
         // (可选) 调试打印，实际运行时建议注释掉以节省 CPU
-        // RCLCPP_DEBUG(this->get_logger(), "Published DPOS: %.3f, MPOS: %.3f", dpos_val, mpos_val);
+        // RCLCPP_DEBUG(this->get_logger(), "Published MPOS: %.3f, Speed: %.3f", mpos_val, speed_val);
     } else {
-        RCLCPP_WARN(this->get_logger(), "无法读取轴 %d 的位置数据", axis_);
+        RCLCPP_WARN(this->get_logger(), "无法读取轴 %d 的数据", axis_);
     }
 }
 

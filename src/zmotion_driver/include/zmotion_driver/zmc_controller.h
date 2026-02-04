@@ -5,6 +5,9 @@
 #include <chrono>
 #include "rclcpp/rclcpp.hpp"
 #include "std_msgs/msg/float64.hpp"
+#include "std_msgs/msg/header.hpp"
+#include "sensor_msgs/msg/joint_state.hpp"
+#include "motion_msgs/msg/motion_status.hpp"
 #include "zmotion_driver/zmcaux.h"
 
 using namespace std::chrono_literals;
@@ -191,8 +194,7 @@ private:
     // ROS2相关成员
     int axis_;  ///< 监控的轴号
     rclcpp::TimerBase::SharedPtr timer_;  ///< 定时器
-    rclcpp::Publisher<std_msgs::msg::Float64>::SharedPtr dpos_pub_;  ///< 命令位置发布者
-    rclcpp::Publisher<std_msgs::msg::Float64>::SharedPtr mpos_pub_;  ///< 反馈位置发布者
+    rclcpp::Publisher<motion_msgs::msg::MotionStatus>::SharedPtr motion_status_pub_;  ///< 运动状态发布者
 };
 
 #endif // ZMC_CONTROLLER_H
