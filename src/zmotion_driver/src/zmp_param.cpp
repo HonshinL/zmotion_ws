@@ -1,5 +1,5 @@
 #include "rclcpp/rclcpp.hpp"
-#include "../include/zmcaux.h"
+#include "zmotion_driver/zmcaux.h"
 
 class ZmcDriverNode : public rclcpp::Node {
 public:

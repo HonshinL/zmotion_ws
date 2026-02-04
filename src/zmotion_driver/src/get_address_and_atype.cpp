@@ -1,7 +1,7 @@
 #include <iostream>
 #include <vector>
 #include <iomanip> // 用于格式化输出
-#include "../include/zmcaux.h"
+#include "zmotion_driver/zmcaux.h"
 
 int main() {
     ZMC_HANDLE handle = NULL;

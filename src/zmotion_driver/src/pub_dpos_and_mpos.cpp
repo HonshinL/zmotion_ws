@@ -4,7 +4,7 @@
 
 #include "rclcpp/rclcpp.hpp"
 #include "std_msgs/msg/float64.hpp" // 简单起见使用 Float64，实际项目常用 JointState
-#include "../include/zmcaux.h"
+#include "zmotion_driver/zmcaux.h"
 
 using namespace std::chrono_literals;
 

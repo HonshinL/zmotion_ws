@@ -2,7 +2,7 @@
 #include <vector>
 #include <chrono>
 #include <thread>
-#include "../include/zmcaux.h"
+#include "zmotion_driver/zmcaux.h"
 
 int main() {
     ZMC_HANDLE handle = NULL;

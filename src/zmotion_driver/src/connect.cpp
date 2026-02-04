@@ -3,7 +3,7 @@
 #include <unistd.h>
 #include <memory>
 #include "rclcpp/rclcpp.hpp"
-#include "../include/zmcaux.h" // 引用头文件
+#include "zmotion_driver/zmcaux.h" // 引用头文件
 
 class MotionControlNode : public rclcpp::Node {
 public:
