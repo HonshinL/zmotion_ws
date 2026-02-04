@@ -1,0 +1,14 @@
+# Goal: Request Section
+builtin_interfaces/Time stamp  # Task initiation time
+string input_xml_path         # Input path
+string target_format          # Target format (e.g., "dxf")
+---
+# Result: Final Result
+builtin_interfaces/Time end_time # Task completion time
+bool success                    # Whether successful
+string output_path              # Path of the generated file
+string message                  # Error message
+---
+# Feedback: Intermediate Feedback (Progress Bar)
+float32 progress                # Conversion progress (0.0 ~ 1.0)
+string current_status           # Current status description
