@@ -1,0 +1,6 @@
+# version: 20250819 触发服务
+string xml_command  # 而不是 "command"
+string file_path  
+---
+bool success     #是否成功
+string message  #informational
