@@ -9,7 +9,7 @@
 #include "std_msgs/msg/header.hpp"
 #include "std_msgs/msg/string.hpp"
 #include "sensor_msgs/msg/joint_state.hpp"
-#include "motion_msgs/msg/motion_status.hpp"
+#include "motion_msgs/msg/axis_status.hpp"
 #include "motion_msgs/srv/convert_dxf_to_xml.hpp"
 #include "motion_msgs/action/move_to_position.hpp"
 #include "rclcpp_action/rclcpp_action.hpp"
@@ -263,7 +263,7 @@ private:
     int axis_;  ///< 监控的轴号
     std::vector<int> axes_;  ///< 轴列表
     rclcpp::TimerBase::SharedPtr timer_;  ///< 定时器
-    rclcpp::Publisher<motion_msgs::msg::MotionStatus>::SharedPtr motion_status_pub_;  ///< 运动状态发布者
+    rclcpp::Publisher<motion_msgs::msg::AxisStatus>::SharedPtr axis_status_pub_;  ///< 运动状态发布者
     rclcpp::Service<motion_msgs::srv::ConvertDxfToXml>::SharedPtr convert_dxf_to_xml_service_;  ///< DXF到XML转换服务
     rclcpp::Publisher<std_msgs::msg::String>::SharedPtr convert_status_pub_;  ///< DXF->XML 转换状态发布者
     rclcpp_action::Server<motion_msgs::action::MoveToPosition>::SharedPtr move_to_position_action_server_;  ///< 移动到目标位置Action服务器

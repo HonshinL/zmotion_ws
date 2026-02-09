@@ -173,7 +173,7 @@ void ZmcController::initROS() {
 
     // 创建发布者 (Publisher)
     // 发布运动状态
-    motion_status_pub_ = this->create_publisher<motion_msgs::msg::MotionStatus>("zmc_pub/motion_status", 10);
+    axis_status_pub_ = this->create_publisher<motion_msgs::msg::AxisStatus>("axis_status", 10);
 
     // 创建DXF到XML转换服务
     convert_dxf_to_xml_service_ = this->create_service<motion_msgs::srv::ConvertDxfToXml>(
@@ -265,57 +265,105 @@ void ZmcController::stopPublishing() {
 void ZmcController::timer_callback() {
     if (!is_connected_) return;
 
-    // 创建MotionStatus消息
-    auto motion_status_msg = motion_msgs::msg::MotionStatus();
-    
-    // 直接设置JointState的Header，避免重复
-    auto& joint_state = motion_status_msg.joint_state;
-    joint_state.header.stamp = this->now();
-    joint_state.header.frame_id = "zmc_status";
+    // 创建AxisStatus消息
+    auto axis_status_msg = motion_msgs::msg::AxisStatus();
     
     bool all_axes_success = true;
+    float total_speed = 0.0f;
+    int valid_axes_count = 0;
     
     // 读取所有轴的数据
     for (int axis : axes_) {
+        int axis_status = 0;
         float dpos_val = 0.0;
-        float mpos_val = 0.0;
         float speed_val = 0.0;
         
-        // 从硬件读取数据
-        bool axis_success = getDpos(axis, dpos_val) && getMpos(axis, mpos_val) && getCurSpeed(axis, speed_val);
+        // 使用ZMotion SDK函数获取轴状态
+        bool axis_success = true;
+        
+        // 获取轴状态
+        if (ZAux_Direct_GetAxisStatus(handle_, axis, &axis_status) != ERR_OK) {
+            axis_success = false;
+            RCLCPP_WARN(this->get_logger(), "无法读取轴 %d 的状态", axis);
+        }
+        
+        // 获取命令位置 (DPOS)
+        if (axis_success && ZAux_Direct_GetDpos(handle_, axis, &dpos_val) != ERR_OK) {
+            axis_success = false;
+            RCLCPP_WARN(this->get_logger(), "无法读取轴 %d 的命令位置", axis);
+        }
+        
+        // 获取速度
+        if (axis_success && ZAux_Direct_GetVpSpeed(handle_, axis, &speed_val) != ERR_OK) {
+            axis_success = false;
+            RCLCPP_WARN(this->get_logger(), "无法读取轴 %d 的速度", axis);
+        }
         
         if (axis_success) {
-            // 设置关节名称
-            joint_state.name.push_back("axis_" + std::to_string(axis));
+            // 添加轴状态数据
+            axis_status_msg.status.push_back(axis_status);
+            axis_status_msg.pos.push_back(dpos_val);
             
-            // 设置关节位置 (使用MPOS作为实际位置)
-            joint_state.position.push_back(mpos_val);
-            
-            // 设置关节速度
-            joint_state.velocity.push_back(speed_val);
-            
-            // 设置关节加速度 (暂不支持，留空)
-            // joint_state.effort.push_back(0.0); // 不支持力/力矩
+            // 累加速度用于计算合成速度
+            total_speed += std::abs(speed_val);
+            valid_axes_count++;
             
             // 调试信息
-            RCLCPP_DEBUG(this->get_logger(), "轴 %d: MPOS=%.3f, Speed=%.3f", axis, mpos_val, speed_val);
+            RCLCPP_DEBUG(this->get_logger(), "轴 %d: 状态=%d, 位置=%.3f, 速度=%.3f", 
+                        axis, axis_status, dpos_val, speed_val);
         } else {
-            RCLCPP_WARN(this->get_logger(), "无法读取轴 %d 的数据", axis);
+            // 如果读取失败，添加默认值
+            axis_status_msg.status.push_back(0);
+            axis_status_msg.pos.push_back(0.0f);
             all_axes_success = false;
+            RCLCPP_WARN(this->get_logger(), "轴 %d 数据读取失败，使用默认值", axis);
         }
     }
     
-    // 如果至少有一个轴读取成功，则发布消息
-    if (!joint_state.name.empty()) {
-        motion_status_pub_->publish(motion_status_msg);
+    // 计算合成速度（轴0和轴1的合成速度，假设垂直）
+    if (valid_axes_count >= 2) {
+        // 获取轴0和轴1的速度
+        float speed_axis0 = 0.0f;
+        float speed_axis1 = 0.0f;
         
-        if (all_axes_success) {
-            RCLCPP_DEBUG(this->get_logger(), "成功发布 %zu 个轴的状态数据", joint_state.name.size());
+        // 重新读取轴0和轴1的速度（确保数据一致性）
+        bool speed_read_success = true;
+        if (ZAux_Direct_GetVpSpeed(handle_, 0, &speed_axis0) != ERR_OK) {
+            speed_read_success = false;
+            RCLCPP_WARN(this->get_logger(), "无法读取轴0的速度用于合成速度计算");
+        }
+        if (ZAux_Direct_GetVpSpeed(handle_, 1, &speed_axis1) != ERR_OK) {
+            speed_read_success = false;
+            RCLCPP_WARN(this->get_logger(), "无法读取轴1的速度用于合成速度计算");
+        }
+        
+        if (speed_read_success) {
+            // 合成速度（假设轴0和轴1垂直）
+            axis_status_msg.speed = std::sqrt(speed_axis0 * speed_axis0 + speed_axis1 * speed_axis1);
+            RCLCPP_DEBUG(this->get_logger(), "合成速度计算: 轴0=%.3f, 轴1=%.3f, 合成=%.3f", 
+                        speed_axis0, speed_axis1, axis_status_msg.speed);
         } else {
-            RCLCPP_WARN(this->get_logger(), "部分轴数据读取失败，成功发布 %zu 个轴的状态数据", joint_state.name.size());
+            axis_status_msg.speed = 0.0f;
+            RCLCPP_WARN(this->get_logger(), "速度读取失败，合成速度设为0");
         }
     } else {
-        RCLCPP_ERROR(this->get_logger(), "所有轴数据读取失败，无法发布状态消息");
+        axis_status_msg.speed = 0.0f;
+        RCLCPP_WARN(this->get_logger(), "有效轴数量不足，无法计算合成速度");
+    }
+    
+    // 发布AxisStatus消息
+    if (!axis_status_msg.status.empty()) {
+        axis_status_pub_->publish(axis_status_msg);
+        
+        if (all_axes_success) {
+            RCLCPP_DEBUG(this->get_logger(), "成功发布 %zu 个轴的状态数据，合成速度(轴0+轴1): %.3f", 
+                        axis_status_msg.status.size(), axis_status_msg.speed);
+        } else {
+            RCLCPP_WARN(this->get_logger(), "部分轴数据读取失败，成功发布 %zu 个轴的状态数据，合成速度: %.3f", 
+                       axis_status_msg.status.size(), axis_status_msg.speed);
+        }
+    } else {
+        RCLCPP_ERROR(this->get_logger(), "所有轴数据读取失败，无法发布AxisStatus消息");
     }
 }
 
