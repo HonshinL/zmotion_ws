@@ -11,13 +11,15 @@ find_package(rclcpp REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(motion_msgs REQUIRED)
+find_package(slms_interface REQUIRED)
+
 
 # 添加可执行文件
 add_executable(status_converter src/status_converter.cpp)
-ament_target_dependencies(status_converter rclcpp std_msgs motion_msgs)
+ament_target_dependencies(status_converter rclcpp std_msgs motion_msgs slms_interface)
 
 add_executable(action_converter src/action_converter.cpp)
-ament_target_dependencies(action_converter rclcpp std_msgs motion_msgs)
+ament_target_dependencies(action_converter rclcpp std_msgs motion_msgs slms_interface)
 
 add_executable(scan_to_distance src/scan_to_distance.cpp)
 ament_target_dependencies(scan_to_distance 

@@ -1,13 +1,13 @@
 #include "rclcpp/rclcpp.hpp"
 #include "motion_msgs/msg/motion_status.hpp"
-#include "motion_msgs/msg/axis_status.hpp"
+#include "slms_interface/msg/axis_status.hpp"
 #include "sensor_msgs/msg/joint_state.hpp"
 
 class StatusConverter : public rclcpp::Node {
 public:
     StatusConverter() : Node("status_converter_node") {
         // 创建发布者，发布到 axis_status 话题
-        axis_status_pub_ = this->create_publisher<motion_msgs::msg::AxisStatus>("axis_status", 10);
+        axis_status_pub_ = this->create_publisher<slms_interface::msg::AxisStatus>("axis_status", 10);
 
         // 创建订阅者，订阅 motion_status 话题
         motion_status_sub_ = this->create_subscription<motion_msgs::msg::MotionStatus>(
@@ -21,7 +21,7 @@ public:
 private:
     void motion_status_callback(const motion_msgs::msg::MotionStatus::SharedPtr msg) {
         // 创建 AxisStatus 消息
-        auto axis_status_msg = motion_msgs::msg::AxisStatus();
+        auto axis_status_msg = slms_interface::msg::AxisStatus();
         
         // 转换逻辑：从 MotionStatus 的 JointState 提取数据到 AxisStatus
         const auto& joint_state = msg->joint_state;
@@ -56,7 +56,7 @@ private:
         axis_status_pub_->publish(axis_status_msg);
     }
 
-    rclcpp::Publisher<motion_msgs::msg::AxisStatus>::SharedPtr axis_status_pub_;
+    rclcpp::Publisher<slms_interface::msg::AxisStatus>::SharedPtr axis_status_pub_;
     rclcpp::Subscription<motion_msgs::msg::MotionStatus>::SharedPtr motion_status_sub_;
 };
 
