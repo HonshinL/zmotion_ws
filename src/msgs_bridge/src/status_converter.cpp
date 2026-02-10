@@ -11,7 +11,7 @@ public:
 
         // 创建订阅者，订阅 motion_status 话题
         motion_status_sub_ = this->create_subscription<motion_msgs::msg::MotionStatus>(
-            "motion_status", 10,
+            "zmc/motion_status", 10,
             std::bind(&StatusConverter::motion_status_callback, this, std::placeholders::_1)
         );
         
