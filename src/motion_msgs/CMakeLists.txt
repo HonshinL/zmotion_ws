@@ -25,6 +25,7 @@ find_package(geometry_msgs REQUIRED)
 
 rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/AxisStatus.msg"
+  "msg/MotionStatus.msg"
   "msg/ObjectPosition.msg"
   "srv/LoadFile.srv"
   "srv/ConvertDxfToCam.srv"

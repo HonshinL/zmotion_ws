@@ -10,19 +10,21 @@ find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(sensor_msgs REQUIRED)
+find_package(motion_msgs REQUIRED)
 
 # 添加可执行文件
 add_executable(status_converter src/status_converter.cpp)
-ament_target_dependencies(status_converter rclcpp std_msgs)
+ament_target_dependencies(status_converter rclcpp std_msgs motion_msgs)
 
 add_executable(action_converter src/action_converter.cpp)
-ament_target_dependencies(action_converter rclcpp std_msgs)
+ament_target_dependencies(action_converter rclcpp std_msgs motion_msgs)
 
 add_executable(scan_to_distance src/scan_to_distance.cpp)
 ament_target_dependencies(scan_to_distance 
     rclcpp 
     std_msgs 
     sensor_msgs
+    motion_msgs
 )
 
 # 安装路径
