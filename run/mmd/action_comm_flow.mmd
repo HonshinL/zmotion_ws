@@ -1,0 +1,18 @@
+sequenceDiagram
+    participant C as Action Client
+    participant S as Action Server
+    
+    Note over C,S: 1. 目标请求阶段 (Service)
+    C->>S: send_goal(Goal)
+    S-->>C: Goal Response (Accept/Reject)
+    
+    Note over C,S: 2. 异步执行阶段 (Topics)
+    rect rgb(240, 240, 240)
+        S->>C: publish_feedback(Feedback)
+        S->>C: publish_feedback(Feedback)
+        Note right of S: 执行业务逻辑 (execute)
+    end
+    
+    Note over C,S: 3. 结果返回阶段 (Service/Topic)
+    S->>C: send_result(Result)
+    C-->>S: Acknowledge

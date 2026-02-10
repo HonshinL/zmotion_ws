@@ -78,7 +78,8 @@ private:
             ZAux_Direct_SetSpeed(handle_, axis, goal->speed);
             ZAux_Direct_SetAccel(handle_, axis, goal->acceleration);
             ZAux_Direct_SetDecel(handle_, axis, goal->deceleration);
-            ZAux_Direct_Single_MoveAbs(handle_, axis, goal->target_positions[i]);
+            // ZAux_Direct_Single_MoveAbs(handle_, axis, goal->target_positions[i]);
+            ZAux_Direct_Single_Move(handle_, axis, goal->target_positions[i]);
         }
 
         // 2. 监控循环
