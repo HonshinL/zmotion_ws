@@ -173,7 +173,7 @@ void ZmcController::initROS() {
 
     // 创建发布者 (Publisher)
     // 发布运动状态
-    motion_status_pub_ = this->create_publisher<motion_msgs::msg::MotionStatus>("zmc/motion_status", 10);
+    motion_status_pub_ = this->create_publisher<motion_msgs::msg::MotionStatus>("zmc_pub/motion_status", 10);
 
     // 创建ObjectPosition消息订阅者
     object_position_sub_ = this->create_subscription<motion_msgs::msg::ObjectPosition>(

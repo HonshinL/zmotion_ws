@@ -18,12 +18,9 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "action/MoveToTarget.action"
 )
 
-# --- 2. 处理 motion_driver 文件夹 (作为模块供其他包 import) ---
+# 3. 处理 motion_driver 文件夹 (作为模块供其他包 import)
 # 注意：这里我们避开 ament_python_install_package 的命名冲突
 # 手动将模块安装到 Python 的 site-packages 路径
-# ament_cmake_python_install_package(${PROJECT_NAME})
-
-# 替代 ament_cmake_python_install_package 的原始写法：
 install(DIRECTORY motion_driver
   DESTINATION "${PYTHON_INSTALL_DIR}"
 )
