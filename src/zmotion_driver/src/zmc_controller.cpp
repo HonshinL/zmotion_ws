@@ -170,14 +170,15 @@ void ZmcController::initROS() {
     
     // 轴参数
     this->declare_parameter<std::vector<double>>("axis_pulse_equivalent", {13107.2, 13107.2, 13107.2, 1000.0, 1000.0});
-    this->declare_parameter<std::vector<double>>("axis_max_speed", {100.0, 100.0, 100.0, 100.0, 100.0});
-    this->declare_parameter<std::vector<double>>("axis_acceleration", {500.0, 500.0, 500.0, 500.0, 500.0});
-    this->declare_parameter<std::vector<double>>("axis_deceleration", {500.0, 500.0, 500.0, 500.0, 500.0});
+    this->declare_parameter<std::vector<double>>("axis_max_speed", {50.0, 50.0, 50.0, 50.0, 50.0});
+    this->declare_parameter<std::vector<double>>("axis_acceleration", {150.0, 150.0, 150.0, 150.0, 150.0});
+    this->declare_parameter<std::vector<double>>("axis_deceleration", {150.0, 150.0, 150.0, 150.0, 150.0});
     
     // 回零参数
     this->declare_parameter<std::vector<int>>("axis_homing_mode", {11, 11, 11, 11, 11});
     this->declare_parameter<std::vector<double>>("axis_homing_velocity_high", {50.0, 50.0, 50.0, 50.0, 50.0});
     this->declare_parameter<std::vector<double>>("axis_homing_velocity_low", {10.0, 10.0, 10.0, 10.0, 10.0});
+    this->declare_parameter<std::vector<double>>("axis_homing_velocity_creep", {5.0, 5.0, 5.0, 5.0, 5.0});
     this->declare_parameter<std::vector<double>>("axis_homing_timeout", {60.0, 60.0, 60.0, 60.0, 60.0});
     
     // 初始化轴列表（假设支持4个轴）
@@ -1013,8 +1014,14 @@ void ZmcController::executeAxisHoming(
             RCLCPP_INFO(this->get_logger(), "使用默认回零超时: %.1f秒", timeout);
         }
         
+        // 确定回零蠕动速度
+        float velocity_creep = 0.0;
+        if (axis < homing_velocities_creep_.size()) {
+            velocity_creep = homing_velocities_creep_[axis];
+        }
+        
         // 执行回零操作
-        if (!homeSingleAxis(axis, velocity_high, velocity_low, homing_mode)) {
+        if (!homeSingleAxis(axis, velocity_high, velocity_low, velocity_creep, homing_mode)) {
             throw std::runtime_error("启动回零操作失败");
         }
         
@@ -1163,11 +1170,20 @@ void ZmcController::executeAxisHoming(
 }
 
 // 执行单轴回零操作
-bool ZmcController::homeSingleAxis(int axis, float velocity_high, float velocity_low, int homing_mode) {
+bool ZmcController::homeSingleAxis(int axis, float velocity_high, float velocity_low, float velocity_creep, int homing_mode) {
     if (!is_connected_) return false;
     
+    // 设置回零蠕动速度
+    if (velocity_creep > 0) {
+        if (!checkError(ZAux_Direct_SetCreep(handle_, axis, velocity_creep))) {
+            RCLCPP_WARN(this->get_logger(), "设置轴 %d 回零蠕动速度失败", axis);
+            // 继续执行，不因为蠕动速度设置失败而终止回零
+        } else {
+            RCLCPP_INFO(this->get_logger(), "轴 %d 回零蠕动速度设置为 %.3f", axis, velocity_creep);
+        }
+    }
+    
     // 执行回零操作（使用总线命令）
-    // 注意：正运动卡使用驱动器回零模式，速度由驱动器参数设置，不需要在控制器端设置
     if (!checkError(ZAux_BusCmd_Datum(handle_, axis, homing_mode))) {
         return false;
     }
@@ -1187,15 +1203,17 @@ void ZmcController::initializeAxisParameters() {
     homing_modes_ = this->get_parameter("axis_homing_mode").as_integer_array();
     homing_velocities_high_ = this->get_parameter("axis_homing_velocity_high").as_double_array();
     homing_velocities_low_ = this->get_parameter("axis_homing_velocity_low").as_double_array();
+    homing_velocities_creep_ = this->get_parameter("axis_homing_velocity_creep").as_double_array();
     homing_timeouts_ = this->get_parameter("axis_homing_timeout").as_double_array();
     
     RCLCPP_INFO(this->get_logger(), "回零参数初始化完成");
     for (size_t i = 0; i < homing_modes_.size(); ++i) {
-        // RCLCPP_INFO(this->get_logger(), "轴 %d: 回零模式=%ld, 高速=%.3f, 低速=%.3f, 超时=%.1f秒", 
-                //    i, homing_modes_[i], 
-                //    i < homing_velocities_high_.size() ? homing_velocities_high_[i] : 0.0, 
-                //    i < homing_velocities_low_.size() ? homing_velocities_low_[i] : 0.0, 
-                //    i < homing_timeouts_.size() ? homing_timeouts_[i] : 0.0);
+        // RCLCPP_INFO(this->get_logger(), "轴 %d: 回零模式=%ld, 高速=%.3f, 低速=%.3f, 蠕动速度=%.3f, 超时=%.1f秒", 
+        //            i, homing_modes_[i], 
+        //            i < homing_velocities_high_.size() ? homing_velocities_high_[i] : 0.0, 
+        //            i < homing_velocities_low_.size() ? homing_velocities_low_[i] : 0.0, 
+        //            i < homing_velocities_creep_.size() ? homing_velocities_creep_[i] : 0.0, 
+        //            i < homing_timeouts_.size() ? homing_timeouts_[i] : 0.0);
     }
     
     RCLCPP_INFO(this->get_logger(), "开始初始化轴参数");
