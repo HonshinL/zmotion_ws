@@ -42,7 +42,7 @@ set(CMAKE_INSTALL_RPATH "$ORIGIN/../lib/${PROJECT_NAME}")
 add_executable(zmotion_node
     src/main.cpp
     src/zmcaux.cpp
-    src/zmc_controller_v1.cpp
+    src/zmc_controller.cpp
 )
 
 # 设置目标的包含目录

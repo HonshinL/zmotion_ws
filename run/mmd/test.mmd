@@ -1,31 +1,29 @@
-mindmap
-  root((现代法国电音
-    2016-2026))
-    黑暗工业与硬核 (Dark & Industrial)
-      Gesaffelstein
-      The Hacker
-      Vitalic
-      Louisahhh
-      Maelstrom
-      Kittin
-    赛博与复古浪潮 (Cyber & Synthwave)
-      Carpenter Brut
-      Perturbator
-      Kavinsky
-      Danger
-      Dan Terminus
-      Sierra
-    情感与管弦乐逻辑 (Melodic & Orchestral)
-      Worakls
-      N'to
-      Joachim Pastor
-      Rone
-      Agoria
-      Thylacine
-    视觉艺术与现代人文 (Visual & Humanist)
-      The Blaze
-      Woodkid
-      FKJ
-      Polo & Pan
-      French 79
-      SebastiAn
+flowchart TD
+    A[开始回零Action] --> B{控制器已连接?<br>is_connected_}
+    B -->|否| C[返回失败]
+    B -->|是| D[确定回零参数]
+    D --> E[执行回零操作]
+    E --> F[监控回零过程]
+    
+    F --> G{"Action被取消?<br>goal_handle->is_canceling()"}
+    G -->|是| H[取消回零操作]
+    G -->|否| I{"是否超时?<br>elapsed.count() > timeout"}
+    I -->|是| J[回零超时失败]
+    I -->|否| K[读取回零状态]
+    
+    K --> L{状态获取成功?<br>status_obtained}
+    L -->|否| M[继续尝试获取状态]
+    M --> F
+    L -->|是| N{回零状态?<br>homing_status}
+    N -->|1: 完成| O[回零成功完成]
+    N -->|0: 进行中| P[继续等待]
+    N -->|其他| Q[回零异常完成]
+    P --> F
+    
+    O --> R[读取最终位置]
+    Q --> R
+    H --> S[返回取消结果]
+    J --> T[返回超时结果]
+    R --> U{回零是否成功?<br>homing_success}
+    U -->|是| V[返回成功结果]
+    U -->|否| W[返回失败结果]
