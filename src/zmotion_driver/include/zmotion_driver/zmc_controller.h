@@ -153,6 +153,11 @@ public:
     bool homeSingleAxis(int axis, float velocity_high, float velocity_low, int homing_mode);
     
     /**
+     * @brief 初始化轴参数
+     */
+    void initializeAxisParameters();
+    
+    /**
      * @brief 执行单轴移动
      * @param axis 轴号
      * @param target_position 目标位置
@@ -346,6 +351,12 @@ private:
     std::atomic<bool> action_running_;  ///< Action是否正在执行
     std::shared_ptr<rclcpp_action::ServerGoalHandle<motion_msgs::action::MoveToPosition>> current_move_goal_handle_;  ///< 当前移动Action目标句柄
     std::shared_ptr<rclcpp_action::ServerGoalHandle<motion_msgs::action::AxisHoming>> current_homing_goal_handle_;  ///< 当前回零Action目标句柄
+    
+    // 轴参数
+    std::vector<long int> homing_modes_;  ///< 各轴的回零模式
+    std::vector<double> homing_velocities_high_;  ///< 各轴的回零高速
+    std::vector<double> homing_velocities_low_;  ///< 各轴的回零低速
+    std::vector<double> homing_timeouts_;  ///< 各轴的回零超时时间
     
     static constexpr int NUM_AXES = 5;  ///< 轴数量
     static constexpr int AXES[NUM_AXES] = {0, 1, 2, 4, 5};  ///< 轴列表定义
