@@ -32,6 +32,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "srv/ConvertDxfToXml.srv"
   "action/ConvertDxfToCam.action"
   "action/MoveToPosition.action"
+  "action/AxisHoming.action"
   DEPENDENCIES 
     std_msgs
     sensor_msgs
