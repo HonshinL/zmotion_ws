@@ -193,11 +193,6 @@ void ZmcController::initROS() {
     // 发布运动状态
     motion_status_pub_ = this->create_publisher<motion_msgs::msg::MotionStatus>("zmc_pub/motion_status", 10);
 
-    // 创建ObjectPosition消息订阅者
-    object_position_sub_ = this->create_subscription<motion_msgs::msg::ObjectPosition>(
-        "/app_pos", 10,
-        std::bind(&ZmcController::handleObjectPosition, this, std::placeholders::_1));
-
     // 创建DXF到XML转换服务
     convert_dxf_to_xml_service_ = this->create_service<motion_msgs::srv::ConvertDxfToXml>(
         "zmc_srv/convert_dxf_to_xml",
@@ -541,8 +536,7 @@ void ZmcController::handleConvertDxfToXml(const std::shared_ptr<motion_msgs::srv
 
 // 处理轴移动Action目标请求
 rclcpp_action::GoalResponse ZmcController::handleAxesMovingGoal(
-    const rclcpp_action::GoalUUID & uuid,
-    std::shared_ptr<const motion_msgs::action::AxesMoving::Goal> goal) {
+    const rclcpp_action::GoalUUID & uuid, std::shared_ptr<const motion_msgs::action::AxesMoving::Goal> goal) {
     
     RCLCPP_INFO(this->get_logger(), "收到轴移动Action请求");
     
@@ -815,13 +809,6 @@ bool ZmcController::moveAxes(const std::vector<int>& target_axes, const std::vec
     return true;
 }
 
-// 执行单轴移动（重载）
-bool ZmcController::moveSingleAxis(int axis, float target_position, float speed, float acceleration, float deceleration) {
-    std::vector<int> axes = {axis};
-    std::vector<float> positions = {target_position};
-    return moveAxes(axes, positions, speed, acceleration, deceleration);
-}
-
 // 检查轴是否到达目标位置
 bool ZmcController::isAxisAtPosition(int axis, float target_position, float tolerance) {
     if (!is_connected_) return false;
@@ -832,78 +819,6 @@ bool ZmcController::isAxisAtPosition(int axis, float target_position, float tole
     }
     
     return std::abs(current_position - target_position) <= tolerance;
-}
-
-// ObjectPosition消息处理
-void ZmcController::handleObjectPosition(const motion_msgs::msg::ObjectPosition::SharedPtr msg) {
-    RCLCPP_INFO(this->get_logger(), "收到ObjectPosition消息，模式: %d, 轴数: %d, 坐标系: %d", 
-               msg->mode, msg->axis_num, msg->plane_coord);
-    
-    // 检查消息有效性
-    if (msg->pos.empty()) {
-        RCLCPP_ERROR(this->get_logger(), "ObjectPosition消息中位置数据为空");
-        return;
-    }
-    
-    // 根据模式处理不同的运动类型
-    switch (msg->mode) {
-        case 0: // 单轴回零
-            RCLCPP_INFO(this->get_logger(), "执行单轴回零，轴号: %d", msg->axis_num);
-            // 这里可以实现回零逻辑
-            break;
-            
-        case 1: // 单轴运动
-            if (msg->pos.size() >= 1) {
-                RCLCPP_INFO(this->get_logger(), "执行单轴运动，轴号: %d, 目标位置: %.3f", 
-                           msg->axis_num, msg->pos[0]);
-                // 单轴运动
-                std::vector<float> target_positions(NUM_AXES, 0.0f);
-                if (msg->axis_num < NUM_AXES) {
-                    target_positions[msg->axis_num] = msg->pos[0];
-                    moveToPositions(target_positions);
-                }
-            }
-            break;
-            
-        case 2: // 双轴运动(X, Y)
-            if (msg->pos.size() >= 2) {
-                RCLCPP_INFO(this->get_logger(), "执行双轴运动，X: %.3f, Y: %.3f", 
-                           msg->pos[0], msg->pos[1]);
-                // 双轴运动 - 假设轴0为X轴，轴1为Y轴
-                std::vector<float> target_positions(NUM_AXES, 0.0f);
-                target_positions[0] = msg->pos[0]; // X轴
-                target_positions[1] = msg->pos[1]; // Y轴
-                moveToPositions(target_positions);
-            }
-            break;
-            
-        case 3: // 振镜运动
-            RCLCPP_INFO(this->get_logger(), "执行振镜运动");
-            // 这里可以实现振镜控制逻辑
-            break;
-            
-        default:
-            RCLCPP_WARN(this->get_logger(), "未知的运动模式: %d", msg->mode);
-            break;
-    }
-}
-
-// 执行多轴运动到目标位置（重载）
-bool ZmcController::moveToPositions(const std::vector<float>& target_positions, float speed, 
-                                   float acceleration, float deceleration) {
-    if (target_positions.size() != NUM_AXES) {
-        RCLCPP_ERROR(this->get_logger(), "目标位置数量(%zu)与轴数量(%d)不匹配", 
-                    target_positions.size(), NUM_AXES);
-        return false;
-    }
-    
-    // 构建轴列表
-    std::vector<int> axes;
-    for (int i = 0; i < NUM_AXES; ++i) {
-        axes.push_back(AXES[i]);
-    }
-    
-    return moveAxes(axes, target_positions, speed, acceleration, deceleration);
 }
 
 // 监控轴运动进度（内部方法）
@@ -940,21 +855,6 @@ void ZmcController::monitorAxesMotion(const std::vector<int>& target_axes, const
     
     RCLCPP_INFO(this->get_logger(), "轴运动完成");
 }
-
-// 监控多轴运动进度（内部方法，保持向后兼容）
-void ZmcController::monitorMultiAxisMotion(const std::vector<float>& target_positions) {
-    // 构建轴列表
-    std::vector<int> axes;
-    for (int i = 0; i < NUM_AXES; ++i) {
-        axes.push_back(AXES[i]);
-    }
-    
-    monitorAxesMotion(axes, target_positions);
-}
-
-// 轴回零Action相关方法实现
-
-
 
 // 处理多轴回零Action目标请求
 rclcpp_action::GoalResponse ZmcController::handleAxesHomingGoal(
