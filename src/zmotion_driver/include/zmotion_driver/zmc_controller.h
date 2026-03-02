@@ -147,10 +147,11 @@ public:
      * @param axis 轴号
      * @param velocity_high 高速
      * @param velocity_low 低速
+     * @param velocity_creep 蠕动速度
      * @param homing_mode 回零模式
      * @return 是否成功启动回零
      */
-    bool homeSingleAxis(int axis, float velocity_high, float velocity_low, int homing_mode);
+    bool homeSingleAxis(int axis, float velocity_high, float velocity_low, float velocity_creep, int homing_mode);
     
     /**
      * @brief 初始化轴参数
@@ -356,6 +357,7 @@ private:
     std::vector<long int> homing_modes_;  ///< 各轴的回零模式
     std::vector<double> homing_velocities_high_;  ///< 各轴的回零高速
     std::vector<double> homing_velocities_low_;  ///< 各轴的回零低速
+    std::vector<double> homing_velocities_creep_;  ///< 各轴的回零蠕动速度
     std::vector<double> homing_timeouts_;  ///< 各轴的回零超时时间
     
     static constexpr int NUM_AXES = 5;  ///< 轴数量
