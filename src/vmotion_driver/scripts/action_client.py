@@ -2,12 +2,12 @@
 import rclpy
 from rclpy.action import ActionClient
 from rclpy.node import Node
-from motion_driver.action import MoveToTarget
-from motion_driver.zmotion import calculate_distance, get_status_label
+from vmotion_driver.action import MoveToTarget
+from vmotion_driver.zmotion import calculate_distance, get_status_label
 
 class MotionActionClient(Node):
     def __init__(self):
-        super().__init__('motion_client')
+        super().__init__('vmotion_client')
         self._action_client = ActionClient(self, MoveToTarget, 'move_to_target')
 
     def send_goal(self, x, y):

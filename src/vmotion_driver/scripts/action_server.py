@@ -3,11 +3,11 @@ import time
 import rclpy
 from rclpy.action import ActionServer
 from rclpy.node import Node
-from motion_driver.action import MoveToTarget
+from vmotion_driver.action import MoveToTarget
 
 class MotionActionServer(Node):
     def __init__(self):
-        super().__init__('motion_server')
+        super().__init__('vmotion_server')
         self._action_server = ActionServer(
             self, MoveToTarget, 'move_to_target', self.execute_callback)
         self.get_logger().info('Action Server 已启动，等待指令...')

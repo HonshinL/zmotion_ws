@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.8)
-project(motion_driver)
+project(vmotion_driver)
 
 if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   add_compile_options(-Wall -Wextra -Wpedantic)
@@ -18,10 +18,10 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "action/MoveToTarget.action"
 )
 
-# 3. 处理 motion_driver 文件夹 (作为模块供其他包 import)
+# 3. 处理 vmotion_driver 文件夹 (作为模块供其他包 import)
 # 注意：这里我们避开 ament_python_install_package 的命名冲突
 # 手动将模块安装到 Python 的 site-packages 路径
-install(DIRECTORY motion_driver
+install(DIRECTORY vmotion_driver
   DESTINATION "${PYTHON_INSTALL_DIR}"
 )
 
