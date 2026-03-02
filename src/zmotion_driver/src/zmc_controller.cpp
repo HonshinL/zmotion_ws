@@ -1097,25 +1097,30 @@ bool ZmcController::homeAxes(const std::vector<int>& axes, double timeout) {
     std::map<int, AxisHomingStatus> axis_status;
     
     // 启动所有轴的回零操作
-    for (int axis : axes) {
+    for (size_t i = 0; i < axes.size(); ++i) {
+        int axis = axes[i];
         // 获取默认回零参数
         int homing_mode = 11;
         float velocity_high = 50.0;
         float velocity_low = 10.0;
         float velocity_creep = 5.0;
         
-        if (axis < homing_modes_.size()) {
-            homing_mode = static_cast<int>(homing_modes_[axis]);
+        // 使用轴在列表中的索引获取参数，确保每个轴都能获取到对应位置的参数
+        if (i < homing_modes_.size()) {
+            homing_mode = static_cast<int>(homing_modes_[i]);
         }
-        if (axis < homing_velocities_high_.size()) {
-            velocity_high = homing_velocities_high_[axis];
+        if (i < homing_velocities_high_.size()) {
+            velocity_high = homing_velocities_high_[i];
         }
-        if (axis < homing_velocities_low_.size()) {
-            velocity_low = homing_velocities_low_[axis];
+        if (i < homing_velocities_low_.size()) {
+            velocity_low = homing_velocities_low_[i];
         }
-        if (axis < homing_velocities_creep_.size()) {
-            velocity_creep = homing_velocities_creep_[axis];
+        if (i < homing_velocities_creep_.size()) {
+            velocity_creep = homing_velocities_creep_[i];
         }
+        
+        RCLCPP_INFO(this->get_logger(), "轴 %d (索引 %zu) 回零参数: 模式=%d, 高速=%.3f, 低速=%.3f, 蠕动=%.3f", 
+                   axis, i, homing_mode, velocity_high, velocity_low, velocity_creep);
         
         // 启动回零
         if (!homeAxis(axis, velocity_high, velocity_low, velocity_creep, homing_mode)) {
