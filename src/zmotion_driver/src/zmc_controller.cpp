@@ -825,6 +825,45 @@ bool ZmcController::isAxisAtPosition(int axis, float target_position, float tole
     return std::abs(current_position - target_position) <= tolerance;
 }
 
+// 通用轴监控函数（内部方法）
+template <typename CheckFunc>
+bool ZmcController::monitorAxes(const std::vector<int>& axes, double timeout, CheckFunc check_func, const std::string& operation_name) {
+    auto start_time = std::chrono::steady_clock::now();
+    bool all_axes_completed = false;
+    
+    while (!all_axes_completed) {
+        all_axes_completed = true;
+        int completed_axes = 0;
+        
+        for (int axis : axes) {
+            bool completed = check_func(axis);
+            if (!completed) {
+                all_axes_completed = false;
+            } else {
+                completed_axes++;
+            }
+        }
+        
+        // 检查超时
+        auto current_time = std::chrono::steady_clock::now();
+        auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(current_time - start_time);
+        if (elapsed.count() > timeout) {
+            RCLCPP_ERROR(this->get_logger(), "%s 超时", operation_name.c_str());
+            return false;
+        }
+        
+        float progress = static_cast<float>(completed_axes) / axes.size() * 100.0f;
+        RCLCPP_DEBUG(this->get_logger(), "%s 进度: %.1f%%, 耗时: %lds", operation_name.c_str(), progress, elapsed.count());
+        
+        if (!all_axes_completed) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        }
+    }
+    
+    RCLCPP_INFO(this->get_logger(), "%s 完成", operation_name.c_str());
+    return true;
+}
+
 // 监控轴运动进度（内部方法）
 void ZmcController::monitorAxesMotion(const std::vector<int>& target_axes, const std::vector<float>& target_positions) {
     auto start_time = std::chrono::steady_clock::now();
@@ -857,7 +896,7 @@ void ZmcController::monitorAxesMotion(const std::vector<int>& target_axes, const
         }
     }
     
-    RCLCPP_INFO(this->get_logger(), "轴运动完成");
+    RCLCPP_INFO(this->get_logger(), "多轴运动完成");
 }
 
 // 处理多轴回零Action目标请求
@@ -1121,63 +1160,61 @@ bool ZmcController::homeAxes(const std::vector<int>& axes, double timeout) {
     }
     
     // 等待所有轴回零完成
-    auto start_time = std::chrono::steady_clock::now();
-    bool all_completed = false;
+    std::vector<int> axes_list;
+    for (const auto& [axis, _] : axis_status) {
+        axes_list.push_back(axis);
+    }
     
-    while (!all_completed) {
-        all_completed = true;
+    bool all_completed = monitorAxes(axes_list, timeout, [&](int axis) {
+        auto& status = axis_status[axis];
+        if (status.completed) {
+            return true;
+        }
         
-        for (auto& [axis, status] : axis_status) {
-            if (!status.completed) {
-                // 读取回零状态
-                uint32 homing_status = 0;
-                bool home_status_ok = checkError(ZAux_BusCmd_GetHomeStatus(handle_, axis, &homing_status));
-                
-                // 读取轴状态（物理停止状态）
-                int32 idle_status = 0;
-                bool idle_status_ok = checkError(ZAux_Direct_GetIfIdle(handle_, axis, &idle_status));
-                
-                // 读取运动类型（逻辑任务状态）
-                int32 mtype = 0;
-                bool mtype_ok = checkError(ZAux_Direct_GetMtype(handle_, axis, &mtype));
-                
-                // 判断回零完成条件
-                if (home_status_ok && idle_status_ok && mtype_ok) {
-                    if (homing_status == 1 && idle_status == -1 && mtype == 0) {
-                        // 回零成功完成：回零状态正常 + 物理停止 + 逻辑任务结束
-                        status.completed = true;
-                        status.success = true;
-                        RCLCPP_INFO(this->get_logger(), "轴 %d 回零成功", axis);
-                    } else if (homing_status == 0) {
-                        // 回零还在进行中，继续等待
-                        RCLCPP_DEBUG(this->get_logger(), "轴 %d 回零状态: 进行中 (home_status=%d, idle=%d, mtype=%d)", 
-                                    axis, homing_status, idle_status, mtype);
-                        all_completed = false;
-                    } else {
-                        // 其他状态值，视为异常
-                        status.completed = true;
-                        status.success = false;
-                        RCLCPP_WARN(this->get_logger(), "轴 %d 回零状态异常: home_status=%d, idle=%d, mtype=%d", 
-                                    axis, homing_status, idle_status, mtype);
-                    }
-                } else {
-                    // 状态获取失败，继续尝试
-                    RCLCPP_WARN(this->get_logger(), "轴 %d 获取状态失败: home=%d, idle=%d, mtype=%d", 
-                                axis, home_status_ok ? 1 : 0, idle_status_ok ? 1 : 0, mtype_ok ? 1 : 0);
-                    all_completed = false;
-                }
+        // 读取回零状态
+        uint32 homing_status = 0;
+        bool home_status_ok = checkError(ZAux_BusCmd_GetHomeStatus(handle_, axis, &homing_status));
+        
+        // 读取轴状态（物理停止状态）
+        int32 idle_status = 0;
+        bool idle_status_ok = checkError(ZAux_Direct_GetIfIdle(handle_, axis, &idle_status));
+        
+        // 读取运动类型（逻辑任务状态）
+        int32 mtype = 0;
+        bool mtype_ok = checkError(ZAux_Direct_GetMtype(handle_, axis, &mtype));
+        
+        // 判断回零完成条件
+        if (home_status_ok && idle_status_ok && mtype_ok) {
+            if (homing_status == 1 && idle_status == -1 && mtype == 0) {
+                // 回零成功完成：回零状态正常 + 物理停止 + 逻辑任务结束
+                status.completed = true;
+                status.success = true;
+                RCLCPP_INFO(this->get_logger(), "轴 %d 回零成功", axis);
+                return true;
+            } else if (homing_status == 0) {
+                // 回零还在进行中，继续等待
+                RCLCPP_DEBUG(this->get_logger(), "轴 %d 回零状态: 进行中 (home_status=%d, idle=%d, mtype=%d)", 
+                            axis, homing_status, idle_status, mtype);
+                return false;
+            } else {
+                // 其他状态值，视为异常
+                status.completed = true;
+                status.success = false;
+                RCLCPP_WARN(this->get_logger(), "轴 %d 回零状态异常: home_status=%d, idle=%d, mtype=%d", 
+                            axis, homing_status, idle_status, mtype);
+                return true;
             }
+        } else {
+            // 状态获取失败，继续尝试
+            RCLCPP_WARN(this->get_logger(), "轴 %d 获取状态失败: home=%d, idle=%d, mtype=%d", 
+                        axis, home_status_ok ? 1 : 0, idle_status_ok ? 1 : 0, mtype_ok ? 1 : 0);
+            return false;
         }
-        
-        // 检查超时
-        auto current_time = std::chrono::steady_clock::now();
-        auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(current_time - start_time);
-        if (elapsed.count() > timeout) {
-            RCLCPP_ERROR(this->get_logger(), "多轴回零超时");
-            break;
-        }
-        
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }, "多轴回零");
+    
+    if (!all_completed) {
+        // 超时处理
+        RCLCPP_ERROR(this->get_logger(), "多轴回零超时");
     }
     
     // 检查是否所有轴都回零成功

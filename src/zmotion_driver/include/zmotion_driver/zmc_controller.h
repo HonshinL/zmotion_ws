@@ -153,10 +153,15 @@ public:
      * @param velocity_creep 蠕动速度
      * @param homing_mode 回零模式
      * @return 是否成功启动回零
-     */// 执行单轴回零操作
+     */
     bool homeAxis(int axis, float velocity_high, float velocity_low, float velocity_creep, int homing_mode);
     
-    // 执行多轴回零操作
+    /**
+     * @brief 执行多轴回零操作
+     * @param axes 轴列表
+     * @param timeout 超时时间（秒）
+     * @return 是否所有轴都回零成功
+     */
     bool homeAxes(const std::vector<int>& axes, double timeout);
     
     /**
@@ -215,6 +220,12 @@ public:
                         float acceleration = 100.0f, float deceleration = 100.0f);
     
     /**
+     * @brief 监控多轴运动进度（内部方法）
+     * @param target_positions 目标位置数组
+     */
+    void monitorMultiAxisMotion(const std::vector<float>& target_positions);
+    
+    /**
      * @brief 监控轴运动进度（内部方法）
      * @param target_axes 目标轴列表
      * @param target_positions 目标位置列表
@@ -222,10 +233,54 @@ public:
     void monitorAxesMotion(const std::vector<int>& target_axes, const std::vector<float>& target_positions);
     
     /**
-     * @brief 监控多轴运动进度（内部方法，保持向后兼容）
-     * @param target_positions 目标位置数组
+     * @brief 通用轴监控函数（内部方法）
+     * @param axes 轴列表
+     * @param timeout 超时时间（秒）
+     * @param check_func 检查函数
+     * @param operation_name 操作名称
+     * @return 是否所有轴都完成
      */
-    void monitorMultiAxisMotion(const std::vector<float>& target_positions);
+    template <typename CheckFunc>
+    bool monitorAxes(const std::vector<int>& axes, double timeout, CheckFunc check_func, const std::string& operation_name);
+    
+    // 通用轴监控函数实现
+    // template <typename CheckFunc>
+    // bool ZmcController::monitorAxes(const std::vector<int>& axes, double timeout, CheckFunc check_func, const std::string& operation_name) {
+    //     auto start_time = std::chrono::steady_clock::now();
+    //     bool all_axes_completed = false;
+        
+    //     while (!all_axes_completed) {
+    //         all_axes_completed = true;
+    //         int completed_axes = 0;
+            
+    //         for (int axis : axes) {
+    //             bool completed = check_func(axis);
+    //             if (!completed) {
+    //                 all_axes_completed = false;
+    //             } else {
+    //                 completed_axes++;
+    //             }
+    //         }
+            
+    //         // 检查超时
+    //         auto current_time = std::chrono::steady_clock::now();
+    //         auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(current_time - start_time);
+    //         if (elapsed.count() > timeout) {
+    //             RCLCPP_ERROR(this->get_logger(), "%s 超时", operation_name.c_str());
+    //             return false;
+    //         }
+            
+    //         float progress = static_cast<float>(completed_axes) / axes.size() * 100.0f;
+    //         RCLCPP_DEBUG(this->get_logger(), "%s 进度: %.1f%%, 耗时: %lds", operation_name.c_str(), progress, elapsed.count());
+            
+    //         if (!all_axes_completed) {
+    //             std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    //         }
+    //     }
+        
+    //     RCLCPP_INFO(this->get_logger(), "%s 完成", operation_name.c_str());
+    //     return true;
+    // }
 
     // 位置相关方法
     /**
