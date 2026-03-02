@@ -405,9 +405,10 @@ void ZmcController::timer_callback() {
         } else {
             RCLCPP_WARN(this->get_logger(), "速度读取失败，无法计算合成速度");
         }
-    } else {
-        RCLCPP_WARN(this->get_logger(), "有效轴数量不足，无法计算合成速度");
     }
+    //  else {
+    //     RCLCPP_WARN(this->get_logger(), "有效轴数量不足，无法计算合成速度");
+    // }
     
     // 发布MotionStatus消息
     if (!joint_state.name.empty()) {
@@ -1061,29 +1062,7 @@ void ZmcController::executeAxesHoming(
     current_axes_homing_goal_handle_.reset();
 }
 
-// 执行单轴回零操作
-bool ZmcController::homeAxis(int axis, float velocity_high, float velocity_low, float velocity_creep, int homing_mode) {
-    if (!is_connected_) return false;
-    
-    // 设置回零蠕动速度
-    if (velocity_creep > 0) {
-        if (!checkError(ZAux_Direct_SetCreep(handle_, axis, velocity_creep))) {
-            RCLCPP_WARN(this->get_logger(), "设置轴 %d 回零蠕动速度失败", axis);
-            // 继续执行，不因为蠕动速度设置失败而终止回零
-        } else {
-            RCLCPP_INFO(this->get_logger(), "轴 %d 回零蠕动速度设置为 %.3f", axis, velocity_creep);
-        }
-    }
-    
-    // 执行回零操作（使用总线命令）
-    if (!checkError(ZAux_BusCmd_Datum(handle_, axis, homing_mode))) {
-        return false;
-    }
-    
-    return true;
-}
-
-// 执行多轴回零操作
+// 执行轴回零操作
 bool ZmcController::homeAxes(const std::vector<int>& axes, double timeout) {
     if (!is_connected_) return false;
     
@@ -1122,8 +1101,18 @@ bool ZmcController::homeAxes(const std::vector<int>& axes, double timeout) {
         RCLCPP_INFO(this->get_logger(), "轴 %d (索引 %zu) 回零参数: 模式=%d, 高速=%.3f, 低速=%.3f, 蠕动=%.3f", 
                    axis, i, homing_mode, velocity_high, velocity_low, velocity_creep);
         
-        // 启动回零
-        if (!homeAxis(axis, velocity_high, velocity_low, velocity_creep, homing_mode)) {
+        // 设置回零蠕动速度
+        if (velocity_creep > 0) {
+            if (!checkError(ZAux_Direct_SetCreep(handle_, axis, velocity_creep))) {
+                RCLCPP_WARN(this->get_logger(), "设置轴 %d 回零蠕动速度失败", axis);
+                // 继续执行，不因为蠕动速度设置失败而终止回零
+            } else {
+                RCLCPP_INFO(this->get_logger(), "轴 %d 回零蠕动速度设置为 %.3f", axis, velocity_creep);
+            }
+        }
+        
+        // 执行回零操作（使用总线命令）
+        if (!checkError(ZAux_BusCmd_Datum(handle_, axis, homing_mode))) {
             RCLCPP_ERROR(this->get_logger(), "轴 %d 启动回零失败", axis);
             return false;
         }
@@ -1142,19 +1131,39 @@ bool ZmcController::homeAxes(const std::vector<int>& axes, double timeout) {
             if (!status.completed) {
                 // 读取回零状态
                 uint32 homing_status = 0;
-                if (checkError(ZAux_BusCmd_GetHomeStatus(handle_, axis, &homing_status))) {
-                    if (homing_status == 1) {
+                bool home_status_ok = checkError(ZAux_BusCmd_GetHomeStatus(handle_, axis, &homing_status));
+                
+                // 读取轴状态（物理停止状态）
+                int32 idle_status = 0;
+                bool idle_status_ok = checkError(ZAux_Direct_GetIfIdle(handle_, axis, &idle_status));
+                
+                // 读取运动类型（逻辑任务状态）
+                int32 mtype = 0;
+                bool mtype_ok = checkError(ZAux_Direct_GetMtype(handle_, axis, &mtype));
+                
+                // 判断回零完成条件
+                if (home_status_ok && idle_status_ok && mtype_ok) {
+                    if (homing_status == 1 && idle_status == -1 && mtype == 0) {
+                        // 回零成功完成：回零状态正常 + 物理停止 + 逻辑任务结束
                         status.completed = true;
                         status.success = true;
                         RCLCPP_INFO(this->get_logger(), "轴 %d 回零成功", axis);
                     } else if (homing_status == 0) {
+                        // 回零还在进行中，继续等待
+                        RCLCPP_DEBUG(this->get_logger(), "轴 %d 回零状态: 进行中 (home_status=%d, idle=%d, mtype=%d)", 
+                                    axis, homing_status, idle_status, mtype);
+                        all_completed = false;
+                    } else {
+                        // 其他状态值，视为异常
                         status.completed = true;
                         status.success = false;
-                        RCLCPP_ERROR(this->get_logger(), "轴 %d 回零失败", axis);
+                        RCLCPP_WARN(this->get_logger(), "轴 %d 回零状态异常: home_status=%d, idle=%d, mtype=%d", 
+                                    axis, homing_status, idle_status, mtype);
                     }
-                }
-                
-                if (!status.completed) {
+                } else {
+                    // 状态获取失败，继续尝试
+                    RCLCPP_WARN(this->get_logger(), "轴 %d 获取状态失败: home=%d, idle=%d, mtype=%d", 
+                                axis, home_status_ok ? 1 : 0, idle_status_ok ? 1 : 0, mtype_ok ? 1 : 0);
                     all_completed = false;
                 }
             }
