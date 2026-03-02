@@ -12,7 +12,7 @@
 #include "motion_msgs/msg/motion_status.hpp"
 #include "motion_msgs/msg/object_position.hpp"
 #include "motion_msgs/srv/convert_dxf_to_xml.hpp"
-#include "motion_msgs/action/move_to_position.hpp"
+#include "motion_msgs/action/axes_moving.hpp"
 #include "motion_msgs/action/axis_homing.hpp"
 #include "rclcpp_action/rclcpp_action.hpp"
 #include "zmotion_driver/zmcaux.h"
@@ -84,33 +84,33 @@ public:
 
     // 移动到目标位置Action
     /**
-     * @brief 处理移动到目标位置的Action请求
+     * @brief 处理轴移动的Action请求
      * @param goal_handle Action目标句柄
      */
-    rclcpp_action::GoalResponse handleMoveToPositionGoal(
+    rclcpp_action::GoalResponse handleAxesMovingGoal(
         const rclcpp_action::GoalUUID & uuid,
-        std::shared_ptr<const motion_msgs::action::MoveToPosition::Goal> goal);
+        std::shared_ptr<const motion_msgs::action::AxesMoving::Goal> goal);
     
     /**
      * @brief 处理Action取消请求
      * @param goal_handle Action目标句柄
      */
-    rclcpp_action::CancelResponse handleMoveToPositionCancel(
-        const std::shared_ptr<rclcpp_action::ServerGoalHandle<motion_msgs::action::MoveToPosition>> goal_handle);
+    rclcpp_action::CancelResponse handleAxesMovingCancel(
+        const std::shared_ptr<rclcpp_action::ServerGoalHandle<motion_msgs::action::AxesMoving>> goal_handle);
     
     /**
      * @brief 处理Action接受回调
      * @param goal_handle Action目标句柄
      */
-    void handleMoveToPositionAccepted(
-        const std::shared_ptr<rclcpp_action::ServerGoalHandle<motion_msgs::action::MoveToPosition>> goal_handle);
+    void handleAxesMovingAccepted(
+        const std::shared_ptr<rclcpp_action::ServerGoalHandle<motion_msgs::action::AxesMoving>> goal_handle);
     
     /**
-     * @brief 执行移动到目标位置的Action（异步执行）
+     * @brief 执行轴移动的Action（异步执行）
      * @param goal_handle Action目标句柄
      */
-    void executeMoveToPosition(
-        const std::shared_ptr<rclcpp_action::ServerGoalHandle<motion_msgs::action::MoveToPosition>> goal_handle);
+    void executeAxesMoving(
+        const std::shared_ptr<rclcpp_action::ServerGoalHandle<motion_msgs::action::AxesMoving>> goal_handle);
     
     // 轴回零Action
     /**
@@ -150,8 +150,11 @@ public:
      * @param velocity_creep 蠕动速度
      * @param homing_mode 回零模式
      * @return 是否成功启动回零
-     */
+     */// 执行单轴回零操作
     bool homeSingleAxis(int axis, float velocity_high, float velocity_low, float velocity_creep, int homing_mode);
+    
+    // 执行多轴回零操作
+    bool homeMultipleAxes(const std::vector<long int>& axes, double timeout);
     
     /**
      * @brief 初始化轴参数
@@ -344,13 +347,13 @@ private:
     rclcpp::Publisher<motion_msgs::msg::MotionStatus>::SharedPtr motion_status_pub_;  ///< 运动状态发布者
     rclcpp::Subscription<motion_msgs::msg::ObjectPosition>::SharedPtr object_position_sub_;  ///< 目标位置订阅者
     rclcpp::Service<motion_msgs::srv::ConvertDxfToXml>::SharedPtr convert_dxf_to_xml_service_;  ///< DXF到XML转换服务
-    rclcpp::Publisher<std_msgs::msg::String>::SharedPtr convert_status_pub_;  ///< DXF->XML 转换状态发布者
-    rclcpp_action::Server<motion_msgs::action::MoveToPosition>::SharedPtr move_to_position_action_server_;  ///< 移动到目标位置Action服务器
+    rclcpp::Publisher<std_msgs::msg::String>::SharedPtr convert_status_pub_;  // Action服务器
+    rclcpp_action::Server<motion_msgs::action::AxesMoving>::SharedPtr axes_moving_action_server_;  ///< 轴移动Action服务器
     rclcpp_action::Server<motion_msgs::action::AxisHoming>::SharedPtr axis_homing_action_server_;  ///< 轴回零Action服务器
     
     // Action执行状态
     std::atomic<bool> action_running_;  ///< Action是否正在执行
-    std::shared_ptr<rclcpp_action::ServerGoalHandle<motion_msgs::action::MoveToPosition>> current_move_goal_handle_;  ///< 当前移动Action目标句柄
+    std::shared_ptr<rclcpp_action::ServerGoalHandle<motion_msgs::action::AxesMoving>> current_axes_moving_goal_handle_;  ///< 当前轴移动Action目标句柄
     std::shared_ptr<rclcpp_action::ServerGoalHandle<motion_msgs::action::AxisHoming>> current_homing_goal_handle_;  ///< 当前回零Action目标句柄
     
     // 轴参数

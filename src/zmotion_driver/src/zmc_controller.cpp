@@ -181,6 +181,11 @@ void ZmcController::initROS() {
     this->declare_parameter<std::vector<double>>("axis_homing_velocity_creep", {5.0, 5.0, 5.0, 5.0, 5.0});
     this->declare_parameter<std::vector<double>>("axis_homing_timeout", {60.0, 60.0, 60.0, 60.0, 60.0});
     
+    // 启动回零配置
+    this->declare_parameter<bool>("auto_homing_on_start", true);
+    this->declare_parameter<std::vector<int>>("auto_homing_axes", {0, 1, 2, 4, 5});
+    this->declare_parameter<double>("auto_homing_timeout", 60.0);
+    
     // 初始化轴列表（假设支持4个轴）
     axes_ = {0, 1, 2, 4, 5}; // 示例轴号，根据实际情况调整
 
@@ -201,13 +206,13 @@ void ZmcController::initROS() {
     // 创建DXF转换状态发布者（异步任务状态通知）
     convert_status_pub_ = this->create_publisher<std_msgs::msg::String>("zmc_pub/convert_dxf_to_xml/status", 10);
 
-    // 创建移动到目标位置Action服务器
-    move_to_position_action_server_ = rclcpp_action::create_server<motion_msgs::action::MoveToPosition>(
+    // 创建轴移动Action服务器
+    axes_moving_action_server_ = rclcpp_action::create_server<motion_msgs::action::AxesMoving>(
         this,
-        "zmc_act/move_to_position",
-        std::bind(&ZmcController::handleMoveToPositionGoal, this, std::placeholders::_1, std::placeholders::_2),
-        std::bind(&ZmcController::handleMoveToPositionCancel, this, std::placeholders::_1),
-        std::bind(&ZmcController::handleMoveToPositionAccepted, this, std::placeholders::_1));
+        "zmc_act/axes_moving",
+        std::bind(&ZmcController::handleAxesMovingGoal, this, std::placeholders::_1, std::placeholders::_2),
+        std::bind(&ZmcController::handleAxesMovingCancel, this, std::placeholders::_1),
+        std::bind(&ZmcController::handleAxesMovingAccepted, this, std::placeholders::_1));
     
     // 创建轴回零Action服务器
     axis_homing_action_server_ = rclcpp_action::create_server<motion_msgs::action::AxisHoming>(
@@ -252,6 +257,20 @@ void ZmcController::start() {
             
             // 初始化轴参数
             initializeAxisParameters();
+            
+            // 启动时自动回零
+            bool auto_homing = this->get_parameter("auto_homing_on_start").as_bool();
+            if (auto_homing) {
+                auto homing_axes = this->get_parameter("auto_homing_axes").as_integer_array();
+                double homing_timeout = this->get_parameter("auto_homing_timeout").as_double();
+                
+                RCLCPP_INFO(this->get_logger(), "开始启动时自动回零");
+                if (homeMultipleAxes(homing_axes, homing_timeout)) {
+                    RCLCPP_INFO(this->get_logger(), "所有轴回零成功");
+                } else {
+                    RCLCPP_ERROR(this->get_logger(), "部分轴回零失败");
+                }
+            }
             
             // 启动数据发布
             startPublishing();
@@ -514,12 +533,12 @@ void ZmcController::handleConvertDxfToXml(const std::shared_ptr<motion_msgs::srv
 
 // Action相关方法实现
 
-// 处理Action目标请求
-rclcpp_action::GoalResponse ZmcController::handleMoveToPositionGoal(
+// 处理轴移动Action目标请求
+rclcpp_action::GoalResponse ZmcController::handleAxesMovingGoal(
     const rclcpp_action::GoalUUID & uuid,
-    std::shared_ptr<const motion_msgs::action::MoveToPosition::Goal> goal) {
+    std::shared_ptr<const motion_msgs::action::AxesMoving::Goal> goal) {
     
-    RCLCPP_INFO(this->get_logger(), "收到移动到目标位置Action请求");
+    RCLCPP_INFO(this->get_logger(), "收到轴移动Action请求");
     
     // 检查控制器是否连接
     if (!is_connected_) {
@@ -550,53 +569,53 @@ rclcpp_action::GoalResponse ZmcController::handleMoveToPositionGoal(
         return rclcpp_action::GoalResponse::REJECT;
     }
     
-    RCLCPP_INFO(this->get_logger(), "接受移动到目标位置Action请求");
+    RCLCPP_INFO(this->get_logger(), "接受轴移动Action请求");
     return rclcpp_action::GoalResponse::ACCEPT_AND_EXECUTE;
 }
 
-// 处理Action取消请求
-rclcpp_action::CancelResponse ZmcController::handleMoveToPositionCancel(
-    const std::shared_ptr<rclcpp_action::ServerGoalHandle<motion_msgs::action::MoveToPosition>> goal_handle) {
+// 处理轴移动Action取消请求
+rclcpp_action::CancelResponse ZmcController::handleAxesMovingCancel(
+    const std::shared_ptr<rclcpp_action::ServerGoalHandle<motion_msgs::action::AxesMoving>> goal_handle) {
     
-    RCLCPP_INFO(this->get_logger(), "收到Action取消请求");
+    RCLCPP_INFO(this->get_logger(), "收到轴移动Action取消请求");
     
-    if (action_running_ && current_move_goal_handle_ == goal_handle) {
+    if (action_running_ && current_axes_moving_goal_handle_ == goal_handle) {
         // 停止所有轴的运动
         for (int axis : axes_) {
             ZAux_Direct_Single_Cancel(handle_, axis, 0);
         }
         
         action_running_ = false;
-        RCLCPP_INFO(this->get_logger(), "Action已取消");
+        RCLCPP_INFO(this->get_logger(), "轴移动Action已取消");
         return rclcpp_action::CancelResponse::ACCEPT;
     }
     
-    RCLCPP_WARN(this->get_logger(), "没有正在执行的Action可以取消");
+    RCLCPP_WARN(this->get_logger(), "没有正在执行的轴移动Action可以取消");
     return rclcpp_action::CancelResponse::REJECT;
 }
 
-// 接受并执行Action
-void ZmcController::handleMoveToPositionAccepted(
-    const std::shared_ptr<rclcpp_action::ServerGoalHandle<motion_msgs::action::MoveToPosition>> goal_handle) {
+// 接受并执行轴移动Action
+void ZmcController::handleAxesMovingAccepted(
+    const std::shared_ptr<rclcpp_action::ServerGoalHandle<motion_msgs::action::AxesMoving>> goal_handle) {
     
-    RCLCPP_INFO(this->get_logger(), "Action目标被接受，启动异步执行");
+    RCLCPP_INFO(this->get_logger(), "轴移动Action目标被接受，启动异步执行");
     
     // 启动独立线程执行，避免阻塞ROS2主线程
-    std::thread{std::bind(&ZmcController::executeMoveToPosition, this, goal_handle)}.detach();
+    std::thread{std::bind(&ZmcController::executeAxesMoving, this, goal_handle)}.detach();
 }
 
-void ZmcController::executeMoveToPosition(
-    const std::shared_ptr<rclcpp_action::ServerGoalHandle<motion_msgs::action::MoveToPosition>> goal_handle) {
+void ZmcController::executeAxesMoving(
+    const std::shared_ptr<rclcpp_action::ServerGoalHandle<motion_msgs::action::AxesMoving>> goal_handle) {
     
     // 设置执行状态
     action_running_ = true;
-    current_move_goal_handle_ = goal_handle;
+    current_axes_moving_goal_handle_ = goal_handle;
     
     auto goal = goal_handle->get_goal();
-    auto result = std::make_shared<motion_msgs::action::MoveToPosition::Result>();
-    auto feedback = std::make_shared<motion_msgs::action::MoveToPosition::Feedback>();
+    auto result = std::make_shared<motion_msgs::action::AxesMoving::Result>();
+    auto feedback = std::make_shared<motion_msgs::action::AxesMoving::Feedback>();
     
-    RCLCPP_INFO(this->get_logger(), "开始异步执行移动到目标位置Action");
+    RCLCPP_INFO(this->get_logger(), "开始异步执行轴移动Action");
     
     try {
         // 检查控制器连接状态
@@ -710,21 +729,21 @@ void ZmcController::executeMoveToPosition(
             result->final_positions = feedback->current_positions;
             
             goal_handle->succeed(result);
-            RCLCPP_INFO(this->get_logger(), "Action执行成功完成");
+            RCLCPP_INFO(this->get_logger(), "轴移动Action执行成功完成");
         }
         
     } catch (const std::exception& e) {
         result->end_time = this->now();
         result->success = false;
-        result->message = "Action执行失败: " + std::string(e.what());
+        result->message = "轴移动Action执行失败: " + std::string(e.what());
         
         goal_handle->abort(result);
-        RCLCPP_ERROR(this->get_logger(), "Action执行失败: %s", e.what());
+        RCLCPP_ERROR(this->get_logger(), "轴移动Action执行失败: %s", e.what());
     }
     
     // 清理执行状态
     action_running_ = false;
-    current_move_goal_handle_.reset();
+    current_axes_moving_goal_handle_.reset();
 }
 
 // 执行单轴移动
@@ -1189,6 +1208,100 @@ bool ZmcController::homeSingleAxis(int axis, float velocity_high, float velocity
     }
     
     return true;
+}
+
+// 执行多轴回零操作
+bool ZmcController::homeMultipleAxes(const std::vector<long int>& axes, double timeout) {
+    if (!is_connected_) return false;
+    
+    RCLCPP_INFO(this->get_logger(), "开始执行多轴回零");
+    
+    // 存储每个轴的回零状态
+    struct AxisHomingStatus {
+        bool completed = false;
+        bool success = false;
+    };
+    std::map<int, AxisHomingStatus> axis_status;
+    
+    // 启动所有轴的回零操作
+    for (int axis : axes) {
+        // 获取默认回零参数
+        int homing_mode = 11;
+        float velocity_high = 50.0;
+        float velocity_low = 10.0;
+        float velocity_creep = 5.0;
+        
+        if (axis < homing_modes_.size()) {
+            homing_mode = static_cast<int>(homing_modes_[axis]);
+        }
+        if (axis < homing_velocities_high_.size()) {
+            velocity_high = homing_velocities_high_[axis];
+        }
+        if (axis < homing_velocities_low_.size()) {
+            velocity_low = homing_velocities_low_[axis];
+        }
+        if (axis < homing_velocities_creep_.size()) {
+            velocity_creep = homing_velocities_creep_[axis];
+        }
+        
+        // 启动回零
+        if (!homeSingleAxis(axis, velocity_high, velocity_low, velocity_creep, homing_mode)) {
+            RCLCPP_ERROR(this->get_logger(), "轴 %d 启动回零失败", axis);
+            return false;
+        }
+        
+        axis_status[axis] = AxisHomingStatus();
+    }
+    
+    // 等待所有轴回零完成
+    auto start_time = std::chrono::steady_clock::now();
+    bool all_completed = false;
+    
+    while (!all_completed) {
+        all_completed = true;
+        
+        for (auto& [axis, status] : axis_status) {
+            if (!status.completed) {
+                // 读取回零状态
+                uint32 homing_status = 0;
+                if (checkError(ZAux_BusCmd_GetHomeStatus(handle_, axis, &homing_status))) {
+                    if (homing_status == 1) {
+                        status.completed = true;
+                        status.success = true;
+                        RCLCPP_INFO(this->get_logger(), "轴 %d 回零成功", axis);
+                    } else if (homing_status == 0) {
+                        status.completed = true;
+                        status.success = false;
+                        RCLCPP_ERROR(this->get_logger(), "轴 %d 回零失败", axis);
+                    }
+                }
+                
+                if (!status.completed) {
+                    all_completed = false;
+                }
+            }
+        }
+        
+        // 检查超时
+        auto current_time = std::chrono::steady_clock::now();
+        auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(current_time - start_time);
+        if (elapsed.count() > timeout) {
+            RCLCPP_ERROR(this->get_logger(), "多轴回零超时");
+            break;
+        }
+        
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
+    
+    // 检查是否所有轴都回零成功
+    bool all_success = true;
+    for (const auto& [axis, status] : axis_status) {
+        if (!status.success) {
+            all_success = false;
+        }
+    }
+    
+    return all_success;
 }
 
 // 初始化轴参数

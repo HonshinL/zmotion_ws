@@ -7,12 +7,12 @@
 #include "rclcpp/rclcpp.hpp"
 #include "rclcpp_action/rclcpp_action.hpp"
 #include "slms_interface/msg/object_position.hpp"
-#include "motion_msgs/action/move_to_position.hpp"
+#include "motion_msgs/action/axes_moving.hpp"
 
 class ObjectPositionToActionConverter : public rclcpp::Node {
 public:
-    using MoveToPosition = motion_msgs::action::MoveToPosition;
-    using GoalHandleMove = rclcpp_action::ClientGoalHandle<MoveToPosition>;
+    using AxesMoving = motion_msgs::action::AxesMoving;
+    using GoalHandleMove = rclcpp_action::ClientGoalHandle<AxesMoving>;
 
     explicit ObjectPositionToActionConverter(const rclcpp::NodeOptions & options = rclcpp::NodeOptions())
         : Node("object_position_to_action_converter", options) {
@@ -22,12 +22,12 @@ public:
             "/app_pos", 10,
             std::bind(&ObjectPositionToActionConverter::object_position_callback, this, std::placeholders::_1));
         
-        // 创建 MoveToPosition Action 客户端
-        action_client_ = rclcpp_action::create_client<MoveToPosition>(this, "zmc_act/move_to_position");
+        // 创建 AxesMoving Action 客户端
+        action_client_ = rclcpp_action::create_client<AxesMoving>(this, "zmc_act/axes_moving");
         
         RCLCPP_INFO(this->get_logger(), "ObjectPosition 到 Action 转换节点已启动");
         RCLCPP_INFO(this->get_logger(), "订阅话题: /app_pos");
-        RCLCPP_INFO(this->get_logger(), "发布 Action: zmc_act/move_to_position");
+        RCLCPP_INFO(this->get_logger(), "发布 Action: zmc_act/axes_moving");
     }
 
 private:
@@ -82,14 +82,14 @@ private:
             return;
         }
         
-        auto goal_msg = MoveToPosition::Goal();
+        auto goal_msg = AxesMoving::Goal();
         goal_msg.target_axes = {axis_num};
         goal_msg.target_positions = {target_position};
         goal_msg.speed = 50.0;
         goal_msg.acceleration = 100.0;
         goal_msg.deceleration = 100.0;
         
-        auto send_goal_options = rclcpp_action::Client<MoveToPosition>::SendGoalOptions();
+        auto send_goal_options = rclcpp_action::Client<AxesMoving>::SendGoalOptions();
         send_goal_options.goal_response_callback =
             std::bind(&ObjectPositionToActionConverter::goal_response_callback, this, std::placeholders::_1);
         send_goal_options.feedback_callback =
@@ -108,14 +108,14 @@ private:
             return;
         }
         
-        auto goal_msg = MoveToPosition::Goal();
+        auto goal_msg = AxesMoving::Goal();
         goal_msg.target_axes = axes;
         goal_msg.target_positions = positions;
         goal_msg.speed = 50.0;
         goal_msg.acceleration = 100.0;
         goal_msg.deceleration = 100.0;
         
-        auto send_goal_options = rclcpp_action::Client<MoveToPosition>::SendGoalOptions();
+        auto send_goal_options = rclcpp_action::Client<AxesMoving>::SendGoalOptions();
         send_goal_options.goal_response_callback =
             std::bind(&ObjectPositionToActionConverter::goal_response_callback, this, std::placeholders::_1);
         send_goal_options.feedback_callback =
@@ -138,7 +138,7 @@ private:
     
     void feedback_callback(
         GoalHandleMove::SharedPtr,
-        const std::shared_ptr<const MoveToPosition::Feedback> feedback) {
+        const std::shared_ptr<const AxesMoving::Feedback> feedback) {
         RCLCPP_INFO(this->get_logger(), "运动进度: %.1f%%", feedback->progress * 100);
     }
     
@@ -160,7 +160,7 @@ private:
     }
     
     rclcpp::Subscription<slms_interface::msg::ObjectPosition>::SharedPtr object_position_sub_;
-    rclcpp_action::Client<MoveToPosition>::SharedPtr action_client_;
+    rclcpp_action::Client<AxesMoving>::SharedPtr action_client_;
 };
 
 int main(int argc, char * argv[]) {
