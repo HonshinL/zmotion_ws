@@ -1,4 +1,7 @@
+.marscode/
 .vscode/
 build/
 install/
 log/
+buffer/
+.temp-repair/

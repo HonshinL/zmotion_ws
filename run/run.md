@@ -48,3 +48,14 @@ ZAux_Direct_Single_Addax(g_handle, 1, 0, 1.0); // 轴1 永远跟着 轴0 跑
 
 // 2. 运动时，只需要控制“主轴”
 ZAux_Direct_Single_MoveAbs(g_handle, 0, 100.0); // 轴0动，轴1自动跟
+
+
+# 命令行测试
+ros2 action send_goal /zmc_act/axis_homing motion_msgs/action/AxisHoming "
+{
+  axis_id: 0,
+  velocity_high: 50.0,
+  velocity_low: 10.0,
+  homing_mode: 11,
+  timeout: 60.0
+}" --feedback

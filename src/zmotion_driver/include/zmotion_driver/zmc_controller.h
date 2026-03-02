@@ -10,8 +10,10 @@
 #include "std_msgs/msg/string.hpp"
 #include "sensor_msgs/msg/joint_state.hpp"
 #include "motion_msgs/msg/motion_status.hpp"
+#include "motion_msgs/msg/object_position.hpp"
 #include "motion_msgs/srv/convert_dxf_to_xml.hpp"
 #include "motion_msgs/action/move_to_position.hpp"
+#include "motion_msgs/action/axis_homing.hpp"
 #include "rclcpp_action/rclcpp_action.hpp"
 #include "zmotion_driver/zmcaux.h"
 
@@ -97,11 +99,64 @@ public:
         const std::shared_ptr<rclcpp_action::ServerGoalHandle<motion_msgs::action::MoveToPosition>> goal_handle);
     
     /**
-     * @brief 执行移动到目标位置的Action
+     * @brief 处理Action接受回调
      * @param goal_handle Action目标句柄
      */
     void handleMoveToPositionAccepted(
         const std::shared_ptr<rclcpp_action::ServerGoalHandle<motion_msgs::action::MoveToPosition>> goal_handle);
+    
+    /**
+     * @brief 执行移动到目标位置的Action（异步执行）
+     * @param goal_handle Action目标句柄
+     */
+    void executeMoveToPosition(
+        const std::shared_ptr<rclcpp_action::ServerGoalHandle<motion_msgs::action::MoveToPosition>> goal_handle);
+    
+    // 轴回零Action
+    /**
+     * @brief 处理轴回零的Action请求
+     * @param goal_handle Action目标句柄
+     */
+    rclcpp_action::GoalResponse handleAxisHomingGoal(
+        const rclcpp_action::GoalUUID & uuid,
+        std::shared_ptr<const motion_msgs::action::AxisHoming::Goal> goal);
+    
+    /**
+     * @brief 处理轴回零Action取消请求
+     * @param goal_handle Action目标句柄
+     */
+    rclcpp_action::CancelResponse handleAxisHomingCancel(
+        const std::shared_ptr<rclcpp_action::ServerGoalHandle<motion_msgs::action::AxisHoming>> goal_handle);
+    
+    /**
+     * @brief 处理轴回零Action接受回调
+     * @param goal_handle Action目标句柄
+     */
+    void handleAxisHomingAccepted(
+        const std::shared_ptr<rclcpp_action::ServerGoalHandle<motion_msgs::action::AxisHoming>> goal_handle);
+    
+    /**
+     * @brief 执行轴回零的Action（异步执行）
+     * @param goal_handle Action目标句柄
+     */
+    void executeAxisHoming(
+        const std::shared_ptr<rclcpp_action::ServerGoalHandle<motion_msgs::action::AxisHoming>> goal_handle);
+    
+    /**
+     * @brief 执行单轴回零操作
+     * @param axis 轴号
+     * @param velocity_high 高速
+     * @param velocity_low 低速
+     * @param velocity_creep 蠕动速度
+     * @param homing_mode 回零模式
+     * @return 是否成功启动回零
+     */
+    bool homeSingleAxis(int axis, float velocity_high, float velocity_low, float velocity_creep, int homing_mode);
+    
+    /**
+     * @brief 初始化轴参数
+     */
+    void initializeAxisParameters();
     
     /**
      * @brief 执行单轴移动
@@ -122,6 +177,29 @@ public:
      * @return 是否到达
      */
     bool isAxisAtPosition(int axis, float target_position, float tolerance = 0.001);
+    
+    /**
+     * @brief 处理ObjectPosition消息，移动结构到目标位置
+     * @param msg 接收到的ObjectPosition消息
+     */
+    void handleObjectPosition(const motion_msgs::msg::ObjectPosition::SharedPtr msg);
+    
+    /**
+     * @brief 执行多轴运动到目标位置
+     * @param target_positions 目标位置数组
+     * @param speed 移动速度
+     * @param acceleration 加速度
+     * @param deceleration 减速度
+     * @return 是否成功启动运动
+     */
+    bool moveToPositions(const std::vector<float>& target_positions, float speed = 50.0f, 
+                        float acceleration = 100.0f, float deceleration = 100.0f);
+    
+    /**
+     * @brief 监控多轴运动进度（内部方法）
+     * @param target_positions 目标位置数组
+     */
+    void monitorMultiAxisMotion(const std::vector<float>& target_positions);
 
     // 位置相关方法
     /**
@@ -264,13 +342,23 @@ private:
     std::vector<int> axes_;  ///< 轴列表
     rclcpp::TimerBase::SharedPtr timer_;  ///< 定时器
     rclcpp::Publisher<motion_msgs::msg::MotionStatus>::SharedPtr motion_status_pub_;  ///< 运动状态发布者
+    rclcpp::Subscription<motion_msgs::msg::ObjectPosition>::SharedPtr object_position_sub_;  ///< 目标位置订阅者
     rclcpp::Service<motion_msgs::srv::ConvertDxfToXml>::SharedPtr convert_dxf_to_xml_service_;  ///< DXF到XML转换服务
     rclcpp::Publisher<std_msgs::msg::String>::SharedPtr convert_status_pub_;  ///< DXF->XML 转换状态发布者
     rclcpp_action::Server<motion_msgs::action::MoveToPosition>::SharedPtr move_to_position_action_server_;  ///< 移动到目标位置Action服务器
+    rclcpp_action::Server<motion_msgs::action::AxisHoming>::SharedPtr axis_homing_action_server_;  ///< 轴回零Action服务器
     
     // Action执行状态
     std::atomic<bool> action_running_;  ///< Action是否正在执行
-    std::shared_ptr<rclcpp_action::ServerGoalHandle<motion_msgs::action::MoveToPosition>> current_goal_handle_;  ///< 当前Action目标句柄
+    std::shared_ptr<rclcpp_action::ServerGoalHandle<motion_msgs::action::MoveToPosition>> current_move_goal_handle_;  ///< 当前移动Action目标句柄
+    std::shared_ptr<rclcpp_action::ServerGoalHandle<motion_msgs::action::AxisHoming>> current_homing_goal_handle_;  ///< 当前回零Action目标句柄
+    
+    // 轴参数
+    std::vector<long int> homing_modes_;  ///< 各轴的回零模式
+    std::vector<double> homing_velocities_high_;  ///< 各轴的回零高速
+    std::vector<double> homing_velocities_low_;  ///< 各轴的回零低速
+    std::vector<double> homing_velocities_creep_;  ///< 各轴的回零蠕动速度
+    std::vector<double> homing_timeouts_;  ///< 各轴的回零超时时间
     
     static constexpr int NUM_AXES = 5;  ///< 轴数量
     static constexpr int AXES[NUM_AXES] = {0, 1, 2, 4, 5};  ///< 轴列表定义

@@ -1,0 +1,26 @@
+flowchart TD
+    Start([Client发起请求]) --> CheckGoal{1. handle_goal<br/>是否接受?}
+    CheckGoal -- 拒绝 --> Reject([返回 Reject])
+    CheckGoal -- 接受 --> Accept([返回 Accept])
+    
+    Accept --> HandleAccepted[2. handle_accepted<br/>启动新线程 execute]
+    
+    subgraph Execution_Thread [execute 业务线程]
+        direction TB
+        Loop[开始循环计算] --> CtrlCCheck{rclcpp::ok?}
+        CtrlCCheck -- No --> Terminate([节点关闭/强退])
+        
+        CtrlCCheck -- Yes --> CancelCheck{is_canceling?}
+        CancelCheck -- Yes --> SetCancel[goal_handle->canceled]
+        
+        CancelCheck -- No --> DoWork[执行一步逻辑]
+        DoWork --> PublishFB[publish_feedback]
+        PublishFB --> LoopDone{任务完成?}
+        
+        LoopDone -- No --> Loop
+        LoopDone -- Yes --> SetSuccess[goal_handle->succeed]
+    end
+    
+    SetCancel --> End([任务终止])
+    SetSuccess --> End
+    Terminate --> End

@@ -1,0 +1,12 @@
+classDiagram
+    class MinimalActionServer {
+        +action_server_ : rclcpp_action::Server
+        +handle_goal() : GoalResponse
+        +handle_cancel() : CancelResponse
+        +handle_accepted() : void
+        +execute() : void
+    }
+    
+    MinimalActionServer --> rclcpp_action_Server : 包含
+    MinimalActionServer ..> ActionDefinition : 依赖(.action文件生成)
+    MinimalActionServer ..> std_thread : 开启异步任务

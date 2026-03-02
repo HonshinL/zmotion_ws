@@ -1,0 +1,20 @@
+graph TD
+    subgraph ROS_Executor_Thread [ROS Executor 主线程]
+        A[spin 循环] --> B{事件监听}
+        B -- 收到目标 --> C[handle_goal 回调]
+        B -- 收到确认 --> D[handle_accepted 回调]
+    end
+
+    subgraph Business_Logic_Thread [业务逻辑工作线程]
+        D -- std::thread 开启 --> E[execute 函数]
+        E --> F[计算循环]
+        F -- 耗时操作/Sleep --> F
+        F -- 间歇性 --> G[publish_feedback]
+    end
+
+    G -.-> B
+    F -- 完成后 --> H[goal_handle->succeed]
+    H -.-> B
+
+    style Business_Logic_Thread fill:#f9f,stroke:#333,stroke-width:2px
+    style ROS_Executor_Thread fill:#bbf,stroke:#333,stroke-width:2px

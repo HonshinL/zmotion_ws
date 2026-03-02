@@ -1,8 +1,11 @@
-zmc_driver_node:
+zmc_node:
   ros__parameters:
     controller_ip: "192.168.0.11"
-    axis0:
-      units: 1000.0     # 脉冲当量
-      speed: 10.0      # 10mm/s
-      accel: 100.0
-      decel: 100.0
+    axis_pulse_equivalent: [1000.0, 1000.0, 1000.0, 1000.0, 1000.0]
+    axis_max_speed: [100.0, 100.0, 100.0, 100.0, 100.0]
+    axis_acceleration: [500.0, 500.0, 500.0, 500.0, 500.0]
+    axis_deceleration: [500.0, 500.0, 500.0, 500.0, 500.0]
+    axis_homing_mode: [11, 11, 11, 11, 11]
+    axis_homing_velocity_high: [50.0, 50.0, 50.0, 50.0, 50.0]
+    axis_homing_velocity_low: [10.0, 10.0, 10.0, 10.0, 10.0]
+    axis_homing_timeout: [60.0, 60.0, 60.0, 60.0, 60.0]

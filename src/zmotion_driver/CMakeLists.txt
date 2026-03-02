@@ -22,6 +22,7 @@ find_package(rclcpp_action REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(motion_msgs REQUIRED)
+find_package(slms_interface REQUIRED)
 
 # 更明确地指定库路径，使用绝对路径或项目相关路径
 set(ZMOTION_LIB_DIR ${CMAKE_CURRENT_SOURCE_DIR}/lib)
@@ -50,7 +51,7 @@ target_include_directories(zmotion_node PUBLIC
     $<INSTALL_INTERFACE:include>
 )
 
-ament_target_dependencies(zmotion_node rclcpp rclcpp_action std_msgs sensor_msgs motion_msgs)
+ament_target_dependencies(zmotion_node rclcpp rclcpp_action std_msgs sensor_msgs slms_interface motion_msgs)
 
 target_link_libraries(zmotion_node
     # ${ZMOTION_LIBRARY}
@@ -85,6 +86,31 @@ target_link_libraries(zmotion_test
     ${CMAKE_CURRENT_SOURCE_DIR}/lib/libzmotion.so
 )
 
+# # 添加 Action Server 可执行文件
+# add_executable(zmotion_action_server
+#     src/action_server.cpp
+#     src/zmcaux.cpp
+# )
+
+# # 设置目标的包含目录
+# target_include_directories(zmotion_action_server PUBLIC
+#     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+#     $<INSTALL_INTERFACE:include>
+# )
+
+# ament_target_dependencies(zmotion_action_server rclcpp rclcpp_action std_msgs sensor_msgs motion_msgs)
+
+# target_link_libraries(zmotion_action_server
+#     pthread
+#     ${CMAKE_CURRENT_SOURCE_DIR}/lib/libzmotion.so
+# )
+
+# # 设置rpath，确保运行时能够找到库文件
+# set_target_properties(zmotion_action_server PROPERTIES
+#   INSTALL_RPATH "$ORIGIN"
+#   BUILD_WITH_INSTALL_RPATH TRUE
+# )
+
 # 设置运行时库搜索路径
 # if(UNIX AND NOT APPLE)
 #     set_target_properties(zmotion_test PROPERTIES
@@ -96,6 +122,7 @@ target_link_libraries(zmotion_test
 install(TARGETS 
   zmotion_node
   zmotion_test
+  # zmotion_action_server
   DESTINATION lib/${PROJECT_NAME}
 )
 

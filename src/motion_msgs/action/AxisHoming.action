@@ -1,0 +1,18 @@
+# Goal: 客户端下达的指令
+int32 axis_id          # 轴号
+float64 velocity_high  # 第一阶段寻找开关的高速
+float64 velocity_low   # 第二阶段寻找Z脉冲的低速
+int32 homing_mode      # 对应 6098 模式（如模式 11）
+float64 timeout        # 超时时间（秒）
+---
+# Result: 任务最终结果
+bool success           # 是否成功到达原点
+string message         # 状态描述（如 "Success", "Timeout", "Limit Triggered"）
+float64 final_pos      # 回零完成后的最终位置（应接近0）
+int32 error_code       # 错误代码（0表示成功）
+---
+# Feedback: 运行过程中的实时反馈
+string current_state   # 当前阶段（"SEARCHING", "LATCHING_Z", "OFFSETTING", "COMPLETED", "FAILED"）
+float64 current_pos    # 实时坐标
+int32 drive_status     # 驱动器状态字（Statusword）
+float64 elapsed_time   # 已执行时间（秒）
