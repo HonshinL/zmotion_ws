@@ -896,7 +896,7 @@ rclcpp_action::GoalResponse ZmcController::handleAxesHomingGoal(
         return rclcpp_action::GoalResponse::REJECT;
     }
     
-    if (goal->timeout <= 0) {
+    if (goal->homing_timeout <= 0) {
         RCLCPP_ERROR(this->get_logger(), "超时时间无效，拒绝Action请求");
         return rclcpp_action::GoalResponse::REJECT;
     }
@@ -960,7 +960,7 @@ void ZmcController::executeAxesHoming(
         }
         
         // 执行多轴回零
-        if (!homeAxes(goal->axes, goal->timeout)) {
+        if (!homeAxes(goal->axes, goal->homing_timeout)) {
             throw std::runtime_error("启动多轴回零失败");
         }
         
@@ -1017,7 +1017,7 @@ void ZmcController::executeAxesHoming(
             goal_handle->publish_feedback(feedback);
             
             // 检查超时
-            if (feedback->elapsed_time > goal->timeout) {
+            if (feedback->elapsed_time > goal->homing_timeout) {
                 throw std::runtime_error("回零超时");
             }
             
