@@ -164,30 +164,36 @@ bool ZmcController::setAxisEnable(int axis, int enabled) {
 // 新方法实现
 void ZmcController::initROS() {
     // 声明并获取参数
-    std::string ip = this->declare_parameter<std::string>("controller_ip", "192.168.0.11");
-    axis_ = this->declare_parameter<int>("monitoring_axis", 0);
-    connect_search_timeout_ms_ = this->declare_parameter<int>("controller_connect_search_timeout_ms", 10000);
+
+    // 系统参数
+    this->declare_parameter<std::string>("controller_ip", "192.168.0.11");
+    this->declare_parameter<std::vector<int>>("running_axes", {0});
+    this->declare_parameter<int>("search_timeout_ms", 10000);
     
-    // 轴参数
+    // 读取running_axes参数并转换类型
+    auto running_axes_param = this->get_parameter("running_axes").as_integer_array();
+    running_axes_ = convertInt64ToInt(running_axes_param);
+    std::string axes_str = "实际可控轴: [" + vectorToString(running_axes_) + "]";
+    RCLCPP_INFO(this->get_logger(), "%s", axes_str.c_str());
+    
+    // 声明连接搜索超时参数（当前未使用）
+    this->declare_parameter<int>("controller_connect_search_timeout_ms", 10000);
+    
+    // 运动参数
     this->declare_parameter<std::vector<double>>("axis_pulse_equivalent", {13107.2, 13107.2, 13107.2, 1000.0, 1000.0});
     this->declare_parameter<std::vector<double>>("axis_max_speed", {50.0, 50.0, 50.0, 50.0, 50.0});
     this->declare_parameter<std::vector<double>>("axis_acceleration", {150.0, 150.0, 150.0, 150.0, 150.0});
     this->declare_parameter<std::vector<double>>("axis_deceleration", {150.0, 150.0, 150.0, 150.0, 150.0});
     
     // 回零参数
+    this->declare_parameter<bool>("auto_homing_on_start", true);
+    this->declare_parameter<std::vector<int>>("auto_homing_axes", {0});
+    this->declare_parameter<double>("auto_homing_timeout", 60.0);
     this->declare_parameter<std::vector<int>>("axis_homing_mode", {11, 11, 11, 11, 11});
     this->declare_parameter<std::vector<double>>("axis_homing_velocity_high", {50.0, 50.0, 50.0, 50.0, 50.0});
     this->declare_parameter<std::vector<double>>("axis_homing_velocity_low", {10.0, 10.0, 10.0, 10.0, 10.0});
     this->declare_parameter<std::vector<double>>("axis_homing_velocity_creep", {5.0, 5.0, 5.0, 5.0, 5.0});
     this->declare_parameter<std::vector<double>>("axis_homing_timeout", {60.0, 60.0, 60.0, 60.0, 60.0});
-    
-    // 启动回零配置
-    this->declare_parameter<bool>("auto_homing_on_start", true);
-    this->declare_parameter<std::vector<int>>("auto_homing_axes", {0, 1, 2, 4, 5});
-    this->declare_parameter<double>("auto_homing_timeout", 60.0);
-    
-    // 初始化轴列表（假设支持4个轴）
-    axes_ = {0, 1, 2, 4, 5}; // 示例轴号，根据实际情况调整
 
     // 创建发布者 (Publisher)
     // 发布运动状态
@@ -236,8 +242,8 @@ void ZmcController::start() {
 
     connecting_.store(true);
     
-    // 直接使用固定IP地址 192.168.0.11
-    std::string ip = "192.168.0.11";
+    // 从参数服务器获取IP地址
+    std::string ip = this->get_parameter("controller_ip").as_string();
     
     RCLCPP_INFO(this->get_logger(), "开始尝试连接控制器: %s", ip.c_str());
 
@@ -260,10 +266,7 @@ void ZmcController::start() {
                 double homing_timeout = this->get_parameter("auto_homing_timeout").as_double();
                 
                 // 将std::vector<int64_t>转换为std::vector<int>
-                std::vector<int> homing_axes_int;
-                for (auto axis : homing_axes) {
-                    homing_axes_int.push_back(static_cast<int>(axis));
-                }
+                std::vector<int> homing_axes_int = convertInt64ToInt(homing_axes);
                 
                 RCLCPP_INFO(this->get_logger(), "开始启动时自动回零");
                 if (homeAxes(homing_axes_int, homing_timeout)) {
@@ -327,7 +330,7 @@ void ZmcController::timer_callback() {
     int valid_axes_count = 0;
     
     // 读取所有轴的数据
-    for (int axis : axes_) {
+    for (int axis : running_axes_) {
         float dpos_val = 0.0;
         float mpos_val = 0.0;
         float speed_val = 0.0;
@@ -581,7 +584,7 @@ rclcpp_action::CancelResponse ZmcController::handleAxesMovingCancel(
     
     if (action_running_ && current_axes_moving_goal_handle_ == goal_handle) {
         // 停止所有轴的运动
-        for (int axis : axes_) {
+        for (int axis : running_axes_) {
             ZAux_Direct_Single_Cancel(handle_, axis, 0);
         }
         
@@ -1202,39 +1205,62 @@ void ZmcController::initializeAxisParameters() {
     RCLCPP_INFO(this->get_logger(), "开始初始化轴参数");
     
     // 设置轴参数
-        for (size_t i = 0; i < axes_.size(); ++i) {
-            int axis = axes_[i];
-            
-            // 设置脉冲当量
-            if (i < pulse_equivalent.size()) {
-                if (checkError(ZAux_Direct_SetUnits(handle_, axis, pulse_equivalent[i]))) {
-                    // RCLCPP_INFO(this->get_logger(), "轴 %d: 脉冲当量设置为 %.3f", axis, pulse_equivalent[i]);
-                }
-            }
-            
-            // 设置速度
-            if (i < max_speed.size()) {
-                if (checkError(ZAux_Direct_SetSpeed(handle_, axis, max_speed[i]))) {
-                    // RCLCPP_INFO(this->get_logger(), "轴 %d: 最大速度设置为 %.3f", axis, max_speed[i]);
-                }
-            }
-            
-            // 设置加速度
-            if (i < acceleration.size()) {
-                if (checkError(ZAux_Direct_SetAccel(handle_, axis, acceleration[i]))) {
-                    // RCLCPP_INFO(this->get_logger(), "轴 %d: 加速度设置为 %.3f", axis, acceleration[i]);
-                }
-            }
-            
-            // 设置减速度
-            if (i < deceleration.size()) {
-                if (checkError(ZAux_Direct_SetDecel(handle_, axis, deceleration[i]))) {
-                    // RCLCPP_INFO(this->get_logger(), "轴 %d: 减速度设置为 %.3f", axis, deceleration[i]);
-                }
+    for (size_t i = 0; i < running_axes_.size(); ++i) {
+        int axis = running_axes_[i];
+        
+        // 设置脉冲当量
+        if (i < pulse_equivalent.size()) {
+            if (checkError(ZAux_Direct_SetUnits(handle_, axis, pulse_equivalent[i]))) {
+                // RCLCPP_INFO(this->get_logger(), "轴 %d: 脉冲当量设置为 %.3f", axis, pulse_equivalent[i]);
             }
         }
+        
+        // 设置速度
+        if (i < max_speed.size()) {
+            if (checkError(ZAux_Direct_SetSpeed(handle_, axis, max_speed[i]))) {
+                // RCLCPP_INFO(this->get_logger(), "轴 %d: 最大速度设置为 %.3f", axis, max_speed[i]);
+            }
+        }
+        
+        // 设置加速度
+        if (i < acceleration.size()) {
+            if (checkError(ZAux_Direct_SetAccel(handle_, axis, acceleration[i]))) {
+                // RCLCPP_INFO(this->get_logger(), "轴 %d: 加速度设置为 %.3f", axis, acceleration[i]);
+            }
+        }
+        
+        // 设置减速度
+        if (i < deceleration.size()) {
+            if (checkError(ZAux_Direct_SetDecel(handle_, axis, deceleration[i]))) {
+                // RCLCPP_INFO(this->get_logger(), "轴 %d: 减速度设置为 %.3f", axis, deceleration[i]);
+            }
+        }
+    }
     
     RCLCPP_INFO(this->get_logger(), "轴参数初始化完成");
+}
+
+// 辅助函数：将向量转换为字符串
+std::string ZmcController::vectorToString(const std::vector<int>& vec) const {
+    std::stringstream ss;
+    for (size_t i = 0; i < vec.size(); ++i) {
+        ss << vec[i];
+        if (i < vec.size() - 1) ss << ", ";
+    }
+    return ss.str();
+}
+
+// 辅助函数：将64位整数向量转换为32位整数向量
+std::vector<int> ZmcController::convertInt64ToInt(const std::vector<int64_t>& int64_vec) const {
+    std::vector<int> int_vec;
+    for (auto value : int64_vec) {
+        // 检查是否超出32位整数范围
+        if (value < std::numeric_limits<int>::min() || value > std::numeric_limits<int>::max()) {
+            RCLCPP_WARN(this->get_logger(), "整数 %ld 超出32位整数范围，将被截断", value);
+        }
+        int_vec.push_back(static_cast<int>(value));
+    }
+    return int_vec;
 }
 
 // 私有方法

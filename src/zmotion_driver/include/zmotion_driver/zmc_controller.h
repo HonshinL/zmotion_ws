@@ -15,6 +15,7 @@
 #include "motion_msgs/action/axes_moving.hpp"
 #include "motion_msgs/action/axes_homing.hpp"
 #include "rclcpp_action/rclcpp_action.hpp"
+#include <limits>
 #include "zmotion_driver/zmcaux.h"
 
 using namespace std::chrono_literals;
@@ -348,6 +349,10 @@ private:
      */
     void timer_callback();
 
+    // 辅助方法
+    std::string vectorToString(const std::vector<int>& vec) const;
+    std::vector<int> convertInt64ToInt(const std::vector<int64_t>& int64_vec) const;
+    
     /**
      * @brief 检查错误码并返回结果
      * @param error_code ZMC API返回的错误码
@@ -363,8 +368,7 @@ private:
     int connect_search_timeout_ms_{1000}; ///< 搜索超时 (ms)
 
     // ROS2相关成员
-    int axis_;  ///< 监控的轴号
-    std::vector<int> axes_;  ///< 轴列表
+    std::vector<int> running_axes_ = {};  ///< 实际可控轴列表
     rclcpp::TimerBase::SharedPtr timer_;  ///< 定时器
     rclcpp::Publisher<motion_msgs::msg::MotionStatus>::SharedPtr motion_status_pub_;  ///< 运动状态发布者
     rclcpp::Subscription<motion_msgs::msg::ObjectPosition>::SharedPtr object_position_sub_;  ///< 目标位置订阅者
