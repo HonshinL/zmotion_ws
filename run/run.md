@@ -21,7 +21,7 @@ ros2 service call /zmc_srv/convert_dxf_to_xml motion_msgs/srv/ConvertDxfToXml "{
 ros2 topic echo /zmc_status
 
 # 发送action目标
-ros2 action send_goal /zmc/move_to_position motion_msgs/action/MoveToPosition "
+ros2 action send_goal /zmc/move_to_position motion_msgs/action/AxisMoving "
 {
   target_axes: [0, 1, 2, 4, 5],
   target_positions: [50.0, 100.0, 150.0, 200.0, 250.0],
@@ -31,7 +31,7 @@ ros2 action send_goal /zmc/move_to_position motion_msgs/action/MoveToPosition "
   wait_for_completion: true
 }" --feedback
 
-ros2 action send_goal /zmc/move_to_position motion_msgs/action/MoveToPosition "
+ros2 action send_goal /zmc_act/axes_moving motion_msgs/action/AxesMoving "
 {
   target_axes: [0],
   target_positions: [100.0],
@@ -51,11 +51,22 @@ ZAux_Direct_Single_MoveAbs(g_handle, 0, 100.0); // 轴0动，轴1自动跟
 
 
 # 命令行测试
-ros2 action send_goal /zmc_act/axis_homing motion_msgs/action/AxisHoming "
+
+ros2 action send_goal /zmc_act/axes_moving motion_msgs/action/AxesMoving "
 {
-  axis_id: 0,
-  velocity_high: 50.0,
-  velocity_low: 10.0,
-  homing_mode: 11,
-  timeout: 60.0
+  target_axes: [0],
+  target_positions: [100.0],
+  speed: 20.0,
+  acceleration: 40.0,
+  deceleration: 40.0,
+  wait_for_completion: true
 }" --feedback
+
+ros2 action send_goal /zmc_act/axes_homing motion_msgs/action/AxesHoming '{
+  "axes": [0],
+  "velocity_high": 50.0,
+  "velocity_low": 10.0,
+  "velocity_creep": 10.0,
+  "homing_modes": [11],
+  "homing_timeout": 60.0
+}' --feedback
