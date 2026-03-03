@@ -85,9 +85,9 @@ private:
         auto goal_msg = AxesMoving::Goal();
         goal_msg.target_axes = {axis_num};
         goal_msg.target_positions = {target_position};
-        goal_msg.speed = 50.0;
-        goal_msg.acceleration = 100.0;
-        goal_msg.deceleration = 100.0;
+        goal_msg.speed = {50.0};
+        goal_msg.acceleration = {100.0};
+        goal_msg.deceleration = {100.0};
         
         auto send_goal_options = rclcpp_action::Client<AxesMoving>::SendGoalOptions();
         send_goal_options.goal_response_callback =
@@ -111,9 +111,12 @@ private:
         auto goal_msg = AxesMoving::Goal();
         goal_msg.target_axes = axes;
         goal_msg.target_positions = positions;
-        goal_msg.speed = 50.0;
-        goal_msg.acceleration = 100.0;
-        goal_msg.deceleration = 100.0;
+        
+        // 创建与axes大小相同的速度、加速度和减速度数组
+        size_t num_axes = axes.size();
+        goal_msg.speed.resize(num_axes, 50.0);
+        goal_msg.acceleration.resize(num_axes, 100.0);
+        goal_msg.deceleration.resize(num_axes, 100.0);
         
         auto send_goal_options = rclcpp_action::Client<AxesMoving>::SendGoalOptions();
         send_goal_options.goal_response_callback =

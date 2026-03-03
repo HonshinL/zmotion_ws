@@ -561,21 +561,37 @@ rclcpp_action::GoalResponse ZmcController::handleAxesMovingGoal(
     }
     
     // 检查目标参数有效性
-    if (goal->target_axes.empty() || goal->target_positions.empty()) {
-        RCLCPP_ERROR(this->get_logger(), "目标轴号或位置列表为空，拒绝Action请求");
-        return rclcpp_action::GoalResponse::REJECT;
-    }
-    
-    if (goal->target_axes.size() != goal->target_positions.size()) {
-        RCLCPP_ERROR(this->get_logger(), "目标轴号数量(%zu)与位置数量(%zu)不匹配", 
-                     goal->target_axes.size(), goal->target_positions.size());
-        return rclcpp_action::GoalResponse::REJECT;
-    }
-    
-    if (goal->speed <= 0 || goal->acceleration <= 0 || goal->deceleration <= 0) {
-        RCLCPP_ERROR(this->get_logger(), "速度或加速度参数无效，拒绝Action请求");
-        return rclcpp_action::GoalResponse::REJECT;
-    }
+        if (goal->target_axes.empty() || goal->target_positions.empty()) {
+            RCLCPP_ERROR(this->get_logger(), "目标轴号或位置列表为空，拒绝Action请求");
+            return rclcpp_action::GoalResponse::REJECT;
+        }
+        
+        if (goal->target_axes.size() != goal->target_positions.size()) {
+            RCLCPP_ERROR(this->get_logger(), "目标轴号数量(%zu)与位置数量(%zu)不匹配", 
+                         goal->target_axes.size(), goal->target_positions.size());
+            return rclcpp_action::GoalResponse::REJECT;
+        }
+        
+        // 检查速度、加速度和减速度参数
+        if (goal->speed.empty() || goal->acceleration.empty() || goal->deceleration.empty()) {
+            RCLCPP_ERROR(this->get_logger(), "速度、加速度或减速度数组为空，拒绝Action请求");
+            return rclcpp_action::GoalResponse::REJECT;
+        }
+        
+        if (goal->speed.size() != goal->target_axes.size() || 
+            goal->acceleration.size() != goal->target_axes.size() || 
+            goal->deceleration.size() != goal->target_axes.size()) {
+            RCLCPP_ERROR(this->get_logger(), "速度、加速度或减速度数组大小与目标轴数量不匹配");
+            return rclcpp_action::GoalResponse::REJECT;
+        }
+        
+        // 检查速度、加速度和减速度值是否有效
+        for (size_t i = 0; i < goal->speed.size(); ++i) {
+            if (goal->speed[i] <= 0 || goal->acceleration[i] <= 0 || goal->deceleration[i] <= 0) {
+                RCLCPP_ERROR(this->get_logger(), "速度、加速度或减速度参数无效，拒绝Action请求");
+                return rclcpp_action::GoalResponse::REJECT;
+            }
+        }
     
     RCLCPP_INFO(this->get_logger(), "接受轴移动Action请求");
     return rclcpp_action::GoalResponse::ACCEPT_AND_EXECUTE;
@@ -636,17 +652,17 @@ void ZmcController::executeAxesMoving(
             int axis = goal->target_axes[i];
             
             // 设置轴速度
-            if (!checkError(ZAux_Direct_SetSpeed(handle_, axis, goal->speed))) {
+            if (!checkError(ZAux_Direct_SetSpeed(handle_, axis, goal->speed[i]))) {
                 throw std::runtime_error("设置轴 " + std::to_string(axis) + " 速度失败");
             }
             
             // 设置加速度
-            if (!checkError(ZAux_Direct_SetAccel(handle_, axis, goal->acceleration))) {
+            if (!checkError(ZAux_Direct_SetAccel(handle_, axis, goal->acceleration[i]))) {
                 throw std::runtime_error("设置轴 " + std::to_string(axis) + " 加速度失败");
             }
             
             // 设置减速度
-            if (!checkError(ZAux_Direct_SetDecel(handle_, axis, goal->deceleration))) {
+            if (!checkError(ZAux_Direct_SetDecel(handle_, axis, goal->deceleration[i]))) {
                 throw std::runtime_error("设置轴 " + std::to_string(axis) + " 减速度失败");
             }
         }
@@ -660,7 +676,8 @@ void ZmcController::executeAxesMoving(
                 throw std::runtime_error("设置轴 " + std::to_string(axis) + " 目标位置失败");
             }
             
-            RCLCPP_INFO(this->get_logger(), "轴 %d 开始移动到位置 %.3f", axis, target_position);
+            RCLCPP_INFO(this->get_logger(), "轴 %d 开始移动到位置 %.3f，速度: %.3f，加速度: %.3f", 
+                        axis, target_position, goal->speed[i], goal->acceleration[i]);
         }
         
         // 监控运动过程

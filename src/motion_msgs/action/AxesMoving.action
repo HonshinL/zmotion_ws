@@ -2,9 +2,9 @@
 builtin_interfaces/Time stamp      # 动作开始时间
 int32[] target_axes                # 目标轴号列表
 float32[] target_positions         # 目标位置列表
-float32 speed                      # 移动速度
-float32 acceleration               # 加速度
-float32 deceleration               # 减速度
+float32[] speed                    # 移动速度数组
+float32[] acceleration             # 加速度数组
+float32[] deceleration             # 减速度数组
 bool wait_for_completion           # 是否等待移动完成
 ---
 # Result: 最终结果
