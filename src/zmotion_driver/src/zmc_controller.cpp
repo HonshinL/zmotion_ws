@@ -662,7 +662,7 @@ void ZmcController::executeAxesMoving(
             int axis = goal->target_axes[i];
             float target_position = goal->target_positions[i];
             
-            if (!checkError(ZAux_Direct_Single_Move(handle_, axis, target_position))) {
+            if (!checkError(ZAux_Direct_Single_MoveAbs(handle_, axis, target_position))) {
                 throw std::runtime_error("设置轴 " + std::to_string(axis) + " 目标位置失败");
             }
             
@@ -789,7 +789,7 @@ bool ZmcController::moveAxes(const std::vector<int>& axes, const std::vector<flo
         float target_position = positions[i];
         
         // 启动运动
-        if (!checkError(ZAux_Direct_Single_Move(handle_, axis, target_position))) {
+        if (!checkError(ZAux_Direct_Single_MoveAbs(handle_, axis, target_position))) {
             RCLCPP_ERROR(this->get_logger(), "设置轴 %d 目标位置失败", axis);
             return false;
         }
