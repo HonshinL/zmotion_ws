@@ -180,6 +180,7 @@ void ZmcController::initROS() {
     this->declare_parameter<int>("controller_connect_search_timeout_ms", 10000);
     
     // 运动参数
+    this->declare_parameter<std::vector<int>>("holding_axes", {0, 1, 2, 4, 5});
     this->declare_parameter<std::vector<double>>("axis_moving_pulse_equivalent", {13107.2, 13107.2, 13107.2, 1000.0, 1000.0});
     this->declare_parameter<std::vector<double>>("axis_moving_max_speed", {50.0, 50.0, 50.0, 50.0, 50.0});
     this->declare_parameter<std::vector<double>>("axis_moving_acceleration", {150.0, 150.0, 150.0, 150.0, 150.0});
@@ -197,7 +198,7 @@ void ZmcController::initROS() {
     
     // 回零后移动参数
     this->declare_parameter<bool>("move_after_homing", false);
-    this->declare_parameter<std::vector<double>>("move_after_homing_positions", {240.0});
+    this->declare_parameter<std::vector<double>>("move_after_homing_positions", {240.0, 0.0, 0.0, 0.0, 0.0});
 
     // 创建发布者 (Publisher)
     // 发布运动状态
@@ -234,6 +235,7 @@ void ZmcController::initROS() {
 }
 
 void ZmcController::start() {
+    
     if (connecting_.load()) {
         RCLCPP_WARN(this->get_logger(), "连接已在进行中，跳过本次连接尝试");
         return;
@@ -273,57 +275,16 @@ void ZmcController::start() {
                 std::vector<int> homing_axes_int = convertInt64ToInt(homing_axes);
                 
                 RCLCPP_INFO(this->get_logger(), "开始启动时自动回零");
-                if (homeAxes(homing_axes_int, homing_timeout)) {
+                if (homeAxes(homing_axes_int)) {
                     RCLCPP_INFO(this->get_logger(), "所有轴回零成功");
-                    
-                    // 检查是否需要在回零后移动
-                    bool move_after_homing = this->get_parameter("move_after_homing").as_bool();
-                    if (move_after_homing) {
-                        auto move_positions = this->get_parameter("move_after_homing_positions").as_double_array();
-                        
-                        // 使用轴移动参数作为回零后移动的参数
-                        auto max_speed = this->get_parameter("axis_moving_max_speed").as_double_array();
-                        auto acceleration = this->get_parameter("axis_moving_acceleration").as_double_array();
-                        auto deceleration = this->get_parameter("axis_moving_deceleration").as_double_array();
-                        
-                        // 使用第一个轴的参数作为默认值
-                        double move_speed = max_speed.empty() ? 50.0 : max_speed[0];
-                        double move_acceleration = acceleration.empty() ? 150.0 : acceleration[0];
-                        double move_deceleration = deceleration.empty() ? 150.0 : deceleration[0];
-                        
-                        // 转换类型
-                        std::vector<float> move_positions_float;
-                        for (auto pos : move_positions) {
-                            move_positions_float.push_back(static_cast<float>(pos));
-                        }
-                        
-                        // 确保位置数量与轴数量匹配
-                        if (move_positions_float.size() < running_axes_.size()) {
-                            // 如果位置数量不足，使用最后一个位置值
-                            if (!move_positions_float.empty()) {
-                                float last_position = move_positions_float.back();
-                                while (move_positions_float.size() < running_axes_.size()) {
-                                    move_positions_float.push_back(last_position);
-                                }
-                            } else {
-                                // 如果没有位置值，使用默认值0
-                                move_positions_float.resize(running_axes_.size(), 0.0f);
-                            }
-                        }
-                        
-                        std::string move_str = "开始执行回零后移动: [" + vectorToString(running_axes_) + "]";
-                        RCLCPP_INFO(this->get_logger(), "%s", move_str.c_str());
-                        if (moveAxes(running_axes_, move_positions_float, static_cast<float>(move_speed), 
-                                    static_cast<float>(move_acceleration), static_cast<float>(move_deceleration))) {
-                            RCLCPP_INFO(this->get_logger(), "回零后移动成功");
-                        } else {
-                            RCLCPP_ERROR(this->get_logger(), "回零后移动失败");
-                        }
-                    }
                 } else {
                     RCLCPP_ERROR(this->get_logger(), "部分轴回零失败");
                 }
             }
+            
+            // 回零后移动已在homeAxes函数中处理，此处不再重复执行
+            // 如需修改回零后移动逻辑，请修改homeAxes函数中的相关代码
+            RCLCPP_DEBUG(this->get_logger(), "回零后移动逻辑已集成到homeAxes函数中");
             
             // 启动数据发布
             startPublishing();
@@ -676,7 +637,7 @@ void ZmcController::executeAxesMoving(
             throw std::runtime_error("控制器未连接");
         }
         
-        // 设置运动参数
+        // 设置运动参数（使用Action目标中的参数）
         for (size_t i = 0; i < goal->target_axes.size(); ++i) {
             int axis = goal->target_axes[i];
             
@@ -800,52 +761,32 @@ void ZmcController::executeAxesMoving(
 }
 
 // 执行轴运动（支持单轴或多轴）
-bool ZmcController::moveAxes(const std::vector<int>& target_axes, const std::vector<float>& target_positions, 
-                           float speed, float acceleration, float deceleration) {
+bool ZmcController::moveAxes(const std::vector<int>& axes, const std::vector<float>& positions) {
     if (!is_connected_) {
         RCLCPP_ERROR(this->get_logger(), "控制器未连接");
         return false;
     }
     
     // 检查参数有效性
-    if (target_axes.empty() || target_positions.empty()) {
+    if (axes.empty() || positions.empty()) {
         RCLCPP_ERROR(this->get_logger(), "目标轴或位置列表为空");
         return false;
     }
     
-    if (target_axes.size() != target_positions.size()) {
+    if (axes.size() != positions.size()) {
         RCLCPP_ERROR(this->get_logger(), "目标轴数量与位置数量不匹配");
         return false;
     }
     
-    // 检查是否有正在执行的Action
-    if (action_running_) {
-        RCLCPP_WARN(this->get_logger(), "有Action正在执行，等待完成后执行新运动");
-        return false;
-    }
+    RCLCPP_INFO(this->get_logger(), "开始执行多轴运动");
     
-    // 设置运动参数并启动运动
-    for (size_t i = 0; i < target_axes.size(); ++i) {
-        int axis = target_axes[i];
-        float target_position = target_positions[i];
-        
-        // 设置轴速度
-        if (!checkError(ZAux_Direct_SetSpeed(handle_, axis, speed))) {
-            RCLCPP_ERROR(this->get_logger(), "设置轴 %d 速度失败", axis);
-            return false;
-        }
-        
-        // 设置加速度
-        if (!checkError(ZAux_Direct_SetAccel(handle_, axis, acceleration))) {
-            RCLCPP_ERROR(this->get_logger(), "设置轴 %d 加速度失败", axis);
-            return false;
-        }
-        
-        // 设置减速度
-        if (!checkError(ZAux_Direct_SetDecel(handle_, axis, deceleration))) {
-            RCLCPP_ERROR(this->get_logger(), "设置轴 %d 减速度失败", axis);
-            return false;
-        }
+    // 为所有运行轴设置默认运动参数
+    setAxisMoveParameters();
+    
+    // 启动所有轴的运动
+    for (size_t i = 0; i < axes.size(); ++i) {
+        int axis = axes[i];
+        float target_position = positions[i];
         
         // 启动运动
         if (!checkError(ZAux_Direct_Single_Move(handle_, axis, target_position))) {
@@ -857,7 +798,7 @@ bool ZmcController::moveAxes(const std::vector<int>& target_axes, const std::vec
     }
     
     // 启动监控线程
-    std::thread{std::bind(&ZmcController::monitorAxesMotion, this, target_axes, target_positions)}.detach();
+    std::thread{std::bind(&ZmcController::monitorAxesMotion, this, axes, positions)}.detach();
     
     return true;
 }
@@ -1049,7 +990,7 @@ void ZmcController::executeAxesHoming(
         }
         
         // 执行多轴回零
-        if (!homeAxes(goal->axes, goal->homing_timeout)) {
+        if (!homeAxes(goal->axes)) {
             throw std::runtime_error("启动多轴回零失败");
         }
         
@@ -1151,10 +1092,26 @@ void ZmcController::executeAxesHoming(
 }
 
 // 执行轴回零操作
-bool ZmcController::homeAxes(const std::vector<int>& axes, double timeout) {
-    if (!is_connected_) return false;
+bool ZmcController::homeAxes(const std::vector<int>& axes) {
+    if (!is_connected_) {
+        RCLCPP_ERROR(this->get_logger(), "控制器未连接");
+        return false;
+    }
     
-    RCLCPP_INFO(this->get_logger(), "开始执行多轴回零");
+    // 验证轴参数有效性
+    if (axes.empty()) {
+        RCLCPP_ERROR(this->get_logger(), "轴列表为空");
+        return false;
+    }
+    
+    for (int axis : axes) {
+        if (axis < 0 || axis > 5) {
+            RCLCPP_ERROR(this->get_logger(), "轴号 %d 无效", axis);
+            return false;
+        }
+    }
+    
+    RCLCPP_INFO(this->get_logger(), "开始执行多轴回零，轴列表: %s", vectorToString(axes).c_str());
     
     // 存储每个轴的回零状态
     struct AxisHomingStatus {
@@ -1163,41 +1120,39 @@ bool ZmcController::homeAxes(const std::vector<int>& axes, double timeout) {
     };
     std::map<int, AxisHomingStatus> axis_status;
     
-    // 启动所有轴的回零操作
-    for (size_t i = 0; i < axes.size(); ++i) {
-        int axis = axes[i];
-        // 获取默认回零参数
+    // 设置所有轴的回零参数
+    setAxisHomeParameters();
+    
+    // 读取回零模式参数
+    auto homing_modes = this->get_parameter("axis_homing_mode").as_integer_array();
+    
+    // 从参数服务器读取回零超时参数，设置默认值
+    double timeout = this->get_parameter("axis_homing_timeout").as_double();
+    if (timeout <= 0) {
+        timeout = 30.0; // 默认30秒
+        RCLCPP_WARN(this->get_logger(), "回零超时参数无效，使用默认值 %.1f 秒", timeout);
+    }
+    
+    RCLCPP_INFO(this->get_logger(), "回零超时设置为 %.1f 秒", timeout);
+    
+    // 串行执行回零操作：一个轴完成后再启动下一个轴
+    for (int axis : axes) {
+        // 再次检查控制器连接状态
+        if (!is_connected_) {
+            RCLCPP_ERROR(this->get_logger(), "控制器连接断开");
+            return false;
+        }
+        
+        // 获取轴在holding_axes中的索引
+        int holding_index = getAxisHoldingIndex(axis);
+        
+        // 获取回零模式
         int homing_mode = 11;
-        float velocity_high = 50.0;
-        float velocity_low = 10.0;
-        float velocity_creep = 5.0;
-        
-        // 使用轴在列表中的索引获取参数，确保每个轴都能获取到对应位置的参数
-        if (i < homing_modes_.size()) {
-            homing_mode = static_cast<int>(homing_modes_[i]);
-        }
-        if (i < homing_velocities_high_.size()) {
-            velocity_high = homing_velocities_high_[i];
-        }
-        if (i < homing_velocities_low_.size()) {
-            velocity_low = homing_velocities_low_[i];
-        }
-        if (i < homing_velocities_creep_.size()) {
-            velocity_creep = homing_velocities_creep_[i];
+        if (holding_index >= 0 && static_cast<size_t>(holding_index) < homing_modes.size()) {
+            homing_mode = static_cast<int>(homing_modes[holding_index]);
         }
         
-        RCLCPP_INFO(this->get_logger(), "轴 %d (索引 %zu) 回零参数: 模式=%d, 高速=%.3f, 低速=%.3f, 蠕动=%.3f", 
-                   axis, i, homing_mode, velocity_high, velocity_low, velocity_creep);
-        
-        // 设置回零蠕动速度
-        if (velocity_creep > 0) {
-            if (!checkError(ZAux_Direct_SetCreep(handle_, axis, velocity_creep))) {
-                RCLCPP_WARN(this->get_logger(), "设置轴 %d 回零蠕动速度失败", axis);
-                // 继续执行，不因为蠕动速度设置失败而终止回零
-            } else {
-                RCLCPP_INFO(this->get_logger(), "轴 %d 回零蠕动速度设置为 %.3f", axis, velocity_creep);
-            }
-        }
+        RCLCPP_INFO(this->get_logger(), "开始轴 %d 回零，模式: %d", axis, homing_mode);
         
         // 执行回零操作（使用总线命令）
         if (!checkError(ZAux_BusCmd_Datum(handle_, axis, homing_mode))) {
@@ -1205,65 +1160,93 @@ bool ZmcController::homeAxes(const std::vector<int>& axes, double timeout) {
             return false;
         }
         
+        // 初始化轴状态
         axis_status[axis] = AxisHomingStatus();
-    }
-    
-    // 等待所有轴回零完成
-    std::vector<int> axes_list;
-    for (const auto& [axis, _] : axis_status) {
-        axes_list.push_back(axis);
-    }
-    
-    bool all_completed = monitorAxes(axes_list, timeout, [&](int axis) {
-        auto& status = axis_status[axis];
-        if (status.completed) {
-            return true;
-        }
         
-        // 读取回零状态
-        uint32 homing_status = 0;
-        bool home_status_ok = checkError(ZAux_BusCmd_GetHomeStatus(handle_, axis, &homing_status));
+        // 等待当前轴回零完成
+        bool axis_completed = false;
+        auto start_time = std::chrono::steady_clock::now();
         
-        // 读取轴状态（物理停止状态）
-        int32 idle_status = 0;
-        bool idle_status_ok = checkError(ZAux_Direct_GetIfIdle(handle_, axis, &idle_status));
-        
-        // 读取运动类型（逻辑任务状态）
-        int32 mtype = 0;
-        bool mtype_ok = checkError(ZAux_Direct_GetMtype(handle_, axis, &mtype));
-        
-        // 判断回零完成条件
-        if (home_status_ok && idle_status_ok && mtype_ok) {
-            if (homing_status == 1 && idle_status == -1 && mtype == 0) {
-                // 回零成功完成：回零状态正常 + 物理停止 + 逻辑任务结束
-                status.completed = true;
-                status.success = true;
-                RCLCPP_INFO(this->get_logger(), "轴 %d 回零成功", axis);
-                return true;
-            } else if (homing_status == 0) {
-                // 回零还在进行中，继续等待
-                RCLCPP_DEBUG(this->get_logger(), "轴 %d 回零状态: 进行中 (home_status=%d, idle=%d, mtype=%d)", 
-                            axis, homing_status, idle_status, mtype);
+        while (!axis_completed) {
+            // 再次检查控制器连接状态
+            if (!is_connected_) {
+                RCLCPP_ERROR(this->get_logger(), "控制器连接断开");
+                axis_status[axis].completed = true;
+                axis_status[axis].success = false;
                 return false;
-            } else {
-                // 其他状态值，视为异常
-                status.completed = true;
-                status.success = false;
-                RCLCPP_WARN(this->get_logger(), "轴 %d 回零状态异常: home_status=%d, idle=%d, mtype=%d", 
-                            axis, homing_status, idle_status, mtype);
-                return true;
             }
-        } else {
-            // 状态获取失败，继续尝试
-            RCLCPP_WARN(this->get_logger(), "轴 %d 获取状态失败: home=%d, idle=%d, mtype=%d", 
-                        axis, home_status_ok ? 1 : 0, idle_status_ok ? 1 : 0, mtype_ok ? 1 : 0);
-            return false;
+            
+            // 读取回零状态
+            uint32 homing_status = 0;
+            bool home_status_ok = checkError(ZAux_BusCmd_GetHomeStatus(handle_, axis, &homing_status));
+            
+            // 读取轴状态（物理停止状态）
+            int32 idle_status = 0;
+            bool idle_status_ok = checkError(ZAux_Direct_GetIfIdle(handle_, axis, &idle_status));
+            
+            // 读取运动类型（逻辑任务状态）
+            int32 mtype = 0;
+            bool mtype_ok = checkError(ZAux_Direct_GetMtype(handle_, axis, &mtype));
+            
+            // 判断回零完成条件
+            if (home_status_ok && idle_status_ok && mtype_ok) {
+                if (homing_status == 1 && idle_status == -1 && mtype == 0) {
+                    // 回零成功完成：回零状态正常 + 物理停止 + 逻辑任务结束
+                    axis_status[axis].completed = true;
+                    axis_status[axis].success = true;
+                    RCLCPP_INFO(this->get_logger(), "轴 %d 回零成功", axis);
+                    
+                    // 检查是否需要在回零后移动
+                    bool move_after_homing = this->get_parameter("move_after_homing").as_bool();
+                    if (move_after_homing) {
+                        // 获取回零后移动位置
+                        float position = getAxisHomingMovePosition(axis);
+                        
+                        // 执行移动操作
+                        RCLCPP_INFO(this->get_logger(), "轴 %d 开始回零后移动到位置 %.3f", axis, position);
+                        if (!moveAxes({axis}, {position})) {
+                            RCLCPP_ERROR(this->get_logger(), "轴 %d 回零后移动失败", axis);
+                            // 回零后移动失败不影响回零成功状态
+                        } else {
+                            RCLCPP_INFO(this->get_logger(), "轴 %d 回零后移动成功", axis);
+                        }
+                    }
+                    
+                    axis_completed = true;
+                } else if (homing_status == 0) {
+                    // 回零还在进行中，继续等待
+                    RCLCPP_DEBUG(this->get_logger(), "轴 %d 回零状态: 进行中 (home_status=%d, idle=%d, mtype=%d)", 
+                                axis, homing_status, idle_status, mtype);
+                    // 短暂休眠，避免过度占用CPU
+                    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+                } else {
+                    // 其他状态值，视为异常
+                    axis_status[axis].completed = true;
+                    axis_status[axis].success = false;
+                    RCLCPP_WARN(this->get_logger(), "轴 %d 回零状态异常: home_status=%d, idle=%d, mtype=%d", 
+                                axis, homing_status, idle_status, mtype);
+                    axis_completed = true;
+                }
+            } else {
+                // 状态获取失败，继续尝试
+                RCLCPP_WARN(this->get_logger(), "轴 %d 获取状态失败: home=%d, idle=%d, mtype=%d", 
+                            axis, home_status_ok ? 1 : 0, idle_status_ok ? 1 : 0, mtype_ok ? 1 : 0);
+                // 短暂休眠，避免过度占用CPU
+                std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            }
+            
+            // 检查超时
+            auto current_time = std::chrono::steady_clock::now();
+            auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(current_time - start_time);
+            if (elapsed.count() > timeout) {
+                RCLCPP_ERROR(this->get_logger(), "轴 %d 回零超时", axis);
+                axis_status[axis].completed = true;
+                axis_status[axis].success = false;
+                return false;
+            }
         }
-    }, "多轴回零");
-    
-    if (!all_completed) {
-        // 超时处理
-        RCLCPP_ERROR(this->get_logger(), "多轴回零超时");
+        
+        RCLCPP_INFO(this->get_logger(), "轴 %d 回零完成，继续下一个轴", axis);
     }
     
     // 检查是否所有轴都回零成功
@@ -1271,7 +1254,14 @@ bool ZmcController::homeAxes(const std::vector<int>& axes, double timeout) {
     for (const auto& [axis, status] : axis_status) {
         if (!status.success) {
             all_success = false;
+            RCLCPP_ERROR(this->get_logger(), "轴 %d 回零失败", axis);
         }
+    }
+    
+    if (all_success) {
+        RCLCPP_INFO(this->get_logger(), "所有轴回零成功");
+    } else {
+        RCLCPP_ERROR(this->get_logger(), "部分轴回零失败");
     }
     
     return all_success;
@@ -1281,59 +1271,32 @@ bool ZmcController::homeAxes(const std::vector<int>& axes, double timeout) {
 void ZmcController::initializeAxisParameters() {
     // 读取轴参数
     auto pulse_equivalent = this->get_parameter("axis_moving_pulse_equivalent").as_double_array();
-    auto max_speed = this->get_parameter("axis_moving_max_speed").as_double_array();
-    auto acceleration = this->get_parameter("axis_moving_acceleration").as_double_array();
-    auto deceleration = this->get_parameter("axis_moving_deceleration").as_double_array();
-    
-    // 读取回零参数并存储为成员变量
-    homing_modes_ = this->get_parameter("axis_homing_mode").as_integer_array();
-    homing_velocities_high_ = this->get_parameter("axis_homing_velocity_high").as_double_array();
-    homing_velocities_low_ = this->get_parameter("axis_homing_velocity_low").as_double_array();
-    homing_velocities_creep_ = this->get_parameter("axis_homing_velocity_creep").as_double_array();
-    homing_timeouts_ = this->get_parameter("axis_homing_timeout").as_double_array();
-    
-    RCLCPP_INFO(this->get_logger(), "回零参数初始化完成");
-    for (size_t i = 0; i < homing_modes_.size(); ++i) {
-        // RCLCPP_INFO(this->get_logger(), "轴 %d: 回零模式=%ld, 高速=%.3f, 低速=%.3f, 蠕动速度=%.3f, 超时=%.1f秒", 
-        //            i, homing_modes_[i], 
-        //            i < homing_velocities_high_.size() ? homing_velocities_high_[i] : 0.0, 
-        //            i < homing_velocities_low_.size() ? homing_velocities_low_[i] : 0.0, 
-        //            i < homing_velocities_creep_.size() ? homing_velocities_creep_[i] : 0.0, 
-        //            i < homing_timeouts_.size() ? homing_timeouts_[i] : 0.0);
-    }
     
     RCLCPP_INFO(this->get_logger(), "开始初始化轴参数");
     
-    // 设置轴参数
+    // 设置轴参数（脉冲当量）
     for (size_t i = 0; i < running_axes_.size(); ++i) {
         int axis = running_axes_[i];
         
-        // 设置脉冲当量
-        if (i < pulse_equivalent.size()) {
-            if (checkError(ZAux_Direct_SetUnits(handle_, axis, pulse_equivalent[i]))) {
-                // RCLCPP_INFO(this->get_logger(), "轴 %d: 脉冲当量设置为 %.3f", axis, pulse_equivalent[i]);
-            }
+        // 获取轴在holding_axes中的索引
+        int holding_index = getAxisHoldingIndex(axis);
+        
+        // 检查轴是否在holding_axes中
+        if (holding_index < 0) {
+            RCLCPP_WARN(this->get_logger(), "轴 %d 不在holding_axes中，跳过参数设置", axis);
+            continue;
         }
         
-        // 设置速度
-        if (i < max_speed.size()) {
-            if (checkError(ZAux_Direct_SetSpeed(handle_, axis, max_speed[i]))) {
-                // RCLCPP_INFO(this->get_logger(), "轴 %d: 最大速度设置为 %.3f", axis, max_speed[i]);
-            }
-        }
+        // 检查索引是否在参数数组范围内
+        size_t hold_idx = static_cast<size_t>(holding_index);
         
-        // 设置加速度
-        if (i < acceleration.size()) {
-            if (checkError(ZAux_Direct_SetAccel(handle_, axis, acceleration[i]))) {
-                // RCLCPP_INFO(this->get_logger(), "轴 %d: 加速度设置为 %.3f", axis, acceleration[i]);
+        // 设置脉冲当量（参数）
+        if (hold_idx < pulse_equivalent.size()) {
+            if (checkError(ZAux_Direct_SetUnits(handle_, axis, pulse_equivalent[hold_idx]))) {
+                // RCLCPP_INFO(this->get_logger(), "轴 %d: 脉冲当量设置为 %.3f", axis, pulse_equivalent[hold_idx]);
             }
-        }
-        
-        // 设置减速度
-        if (i < deceleration.size()) {
-            if (checkError(ZAux_Direct_SetDecel(handle_, axis, deceleration[i]))) {
-                // RCLCPP_INFO(this->get_logger(), "轴 %d: 减速度设置为 %.3f", axis, deceleration[i]);
-            }
+        } else {
+            RCLCPP_WARN(this->get_logger(), "轴 %d 的holding_axes索引 %d 超出脉冲当量参数数组范围", axis, holding_index);
         }
     }
     
@@ -1361,6 +1324,121 @@ std::vector<int> ZmcController::convertInt64ToInt(const std::vector<int64_t>& in
         int_vec.push_back(static_cast<int>(value));
     }
     return int_vec;
+}
+
+// 辅助函数：获取轴在holding_axes中的索引
+int ZmcController::getAxisHoldingIndex(int axis) const {
+    // 读取holding_axes参数
+    auto holding_axes_param = this->get_parameter("holding_axes").as_integer_array();
+    std::vector<int> holding_axes = convertInt64ToInt(holding_axes_param);
+    
+    // 查找轴在holding_axes中的索引
+    for (size_t i = 0; i < holding_axes.size(); ++i) {
+        if (holding_axes[i] == axis) {
+            return static_cast<int>(i);
+        }
+    }
+    
+    // 轴不在holding_axes中
+    return -1;
+}
+
+// 辅助函数：为所有运行轴设置默认运动参数
+void ZmcController::setAxisMoveParameters() {
+    // 从参数服务器获取参数
+    auto max_speed = this->get_parameter("axis_moving_max_speed").as_double_array();
+    auto acceleration = this->get_parameter("axis_moving_acceleration").as_double_array();
+    auto deceleration = this->get_parameter("axis_moving_deceleration").as_double_array();
+    
+    // 遍历所有运行轴
+    for (int axis : running_axes_) {
+        // 获取轴在holding_axes中的索引
+        int holding_index = getAxisHoldingIndex(axis);
+        
+        // 获取速度参数
+        double speed = max_speed.empty() ? 50.0 : (holding_index >= 0 && static_cast<size_t>(holding_index) < max_speed.size() ? max_speed[holding_index] : max_speed[0]);
+        
+        // 获取加速度参数
+        double accel = acceleration.empty() ? 150.0 : (holding_index >= 0 && static_cast<size_t>(holding_index) < acceleration.size() ? acceleration[holding_index] : acceleration[0]);
+        
+        // 获取减速度参数
+        double decel = deceleration.empty() ? 150.0 : (holding_index >= 0 && static_cast<size_t>(holding_index) < deceleration.size() ? deceleration[holding_index] : deceleration[0]);
+        
+        // 设置轴速度
+        if (checkError(ZAux_Direct_SetSpeed(handle_, axis, static_cast<float>(speed)))) {
+            // RCLCPP_INFO(this->get_logger(), "轴 %d: 最大速度设置为 %.3f", axis, speed);
+        }
+        
+        // 设置轴加速度
+        if (checkError(ZAux_Direct_SetAccel(handle_, axis, static_cast<float>(accel)))) {
+            // RCLCPP_INFO(this->get_logger(), "轴 %d: 加速度设置为 %.3f", axis, accel);
+        }
+        
+        // 设置轴减速度
+        if (checkError(ZAux_Direct_SetDecel(handle_, axis, static_cast<float>(decel)))) {
+            // RCLCPP_INFO(this->get_logger(), "轴 %d: 减速度设置为 %.3f", axis, decel);
+        }
+    }
+}
+
+// 辅助函数：获取轴的回零后移动位置
+float ZmcController::getAxisHomingMovePosition(int axis) {
+    // 从参数服务器获取参数
+    auto move_positions = this->get_parameter("move_after_homing_positions").as_double_array();
+    
+    // 获取轴在holding_axes中的索引
+    int holding_index = getAxisHoldingIndex(axis);
+    
+    // 获取位置参数
+    if (holding_index >= 0 && static_cast<size_t>(holding_index) < move_positions.size()) {
+        return static_cast<float>(move_positions[holding_index]);
+    }
+    
+    return 0.0f;
+}
+
+// 辅助函数：设置所有运行轴的回零参数（不包括回零模式）
+void ZmcController::setAxisHomeParameters() {
+    // 读取回零参数
+    auto homing_velocities_high = this->get_parameter("axis_homing_velocity_high").as_double_array();
+    auto homing_velocities_low = this->get_parameter("axis_homing_velocity_low").as_double_array();
+    auto homing_velocities_creep = this->get_parameter("axis_homing_velocity_creep").as_double_array();
+    
+    // 遍历所有运行轴
+    for (size_t i = 0; i < running_axes_.size(); ++i) {
+        int axis = running_axes_[i];
+        
+        // 设置默认值
+        float velocity_high = 50.0;
+        float velocity_low = 10.0;
+        float velocity_creep = 5.0;
+        
+        // 获取轴在holding_axes中的索引
+        int holding_index = getAxisHoldingIndex(axis);
+        
+        // 使用轴在holding_axes中的索引获取参数，否则使用默认值
+        if (holding_index >= 0) {
+            if (static_cast<size_t>(holding_index) < homing_velocities_high.size()) {
+                velocity_high = homing_velocities_high[holding_index];
+            }
+            if (static_cast<size_t>(holding_index) < homing_velocities_low.size()) {
+                velocity_low = homing_velocities_low[holding_index];
+            }
+            if (static_cast<size_t>(holding_index) < homing_velocities_creep.size()) {
+                velocity_creep = homing_velocities_creep[holding_index];
+            }
+        }
+        
+        // 设置回零蠕动速度
+        if (velocity_creep > 0) {
+            if (!checkError(ZAux_Direct_SetCreep(handle_, axis, velocity_creep))) {
+                RCLCPP_WARN(this->get_logger(), "设置轴 %d 回零蠕动速度失败", axis);
+                // 继续执行，不因为蠕动速度设置失败而终止回零
+            } else {
+                RCLCPP_INFO(this->get_logger(), "轴 %d 回零蠕动速度设置为 %.3f", axis, velocity_creep);
+            }
+        }
+    }
 }
 
 // 私有方法

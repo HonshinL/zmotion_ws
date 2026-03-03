@@ -162,7 +162,7 @@ public:
      * @param timeout 超时时间（秒）
      * @return 是否所有轴都回零成功
      */
-    bool homeAxes(const std::vector<int>& axes, double timeout);
+    bool homeAxes(const std::vector<int>& axes);
     
     /**
      * @brief 初始化轴参数
@@ -178,8 +178,7 @@ public:
      * @param deceleration 减速度
      * @return 是否成功启动运动
      */
-    bool moveAxes(const std::vector<int>& target_axes, const std::vector<float>& target_positions, 
-                 float speed = 50.0f, float acceleration = 100.0f, float deceleration = 100.0f);
+    bool moveAxes(const std::vector<int>& target_axes, const std::vector<float>& target_positions);
     
     /**
      * @brief 执行单轴移动（重载）
@@ -407,6 +406,10 @@ private:
     // 辅助方法
     std::string vectorToString(const std::vector<int>& vec) const;
     std::vector<int> convertInt64ToInt(const std::vector<int64_t>& int64_vec) const;
+    int getAxisHoldingIndex(int axis) const;
+    void setAxisMoveParameters();
+    float getAxisHomingMovePosition(int axis);
+    void setAxisHomeParameters();
     
     /**
      * @brief 检查错误码并返回结果
@@ -440,11 +443,6 @@ private:
     std::shared_ptr<rclcpp_action::ServerGoalHandle<motion_msgs::action::AxesHoming>> current_axes_homing_goal_handle_;  ///< 当前多轴回零Action目标句柄
     
     // 轴参数
-    std::vector<long int> homing_modes_;  ///< 各轴的回零模式
-    std::vector<double> homing_velocities_high_;  ///< 各轴的回零高速
-    std::vector<double> homing_velocities_low_;  ///< 各轴的回零低速
-    std::vector<double> homing_velocities_creep_;  ///< 各轴的回零蠕动速度
-    std::vector<double> homing_timeouts_;  ///< 各轴的回零超时时间
     
     static constexpr int NUM_AXES = 5;  ///< 轴数量
     static constexpr int AXES[NUM_AXES] = {0, 1, 2, 4, 5};  ///< 轴列表定义
