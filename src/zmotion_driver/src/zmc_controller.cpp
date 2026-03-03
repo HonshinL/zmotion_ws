@@ -180,10 +180,10 @@ void ZmcController::initROS() {
     this->declare_parameter<int>("controller_connect_search_timeout_ms", 10000);
     
     // 运动参数
-    this->declare_parameter<std::vector<double>>("axis_pulse_equivalent", {13107.2, 13107.2, 13107.2, 1000.0, 1000.0});
-    this->declare_parameter<std::vector<double>>("axis_max_speed", {50.0, 50.0, 50.0, 50.0, 50.0});
-    this->declare_parameter<std::vector<double>>("axis_acceleration", {150.0, 150.0, 150.0, 150.0, 150.0});
-    this->declare_parameter<std::vector<double>>("axis_deceleration", {150.0, 150.0, 150.0, 150.0, 150.0});
+    this->declare_parameter<std::vector<double>>("axis_moving_pulse_equivalent", {13107.2, 13107.2, 13107.2, 1000.0, 1000.0});
+    this->declare_parameter<std::vector<double>>("axis_moving_max_speed", {50.0, 50.0, 50.0, 50.0, 50.0});
+    this->declare_parameter<std::vector<double>>("axis_moving_acceleration", {150.0, 150.0, 150.0, 150.0, 150.0});
+    this->declare_parameter<std::vector<double>>("axis_moving_deceleration", {150.0, 150.0, 150.0, 150.0, 150.0});
     
     // 回零参数
     this->declare_parameter<bool>("auto_homing_on_start", true);
@@ -194,6 +194,10 @@ void ZmcController::initROS() {
     this->declare_parameter<std::vector<double>>("axis_homing_velocity_low", {10.0, 10.0, 10.0, 10.0, 10.0});
     this->declare_parameter<std::vector<double>>("axis_homing_velocity_creep", {5.0, 5.0, 5.0, 5.0, 5.0});
     this->declare_parameter<std::vector<double>>("axis_homing_timeout", {60.0, 60.0, 60.0, 60.0, 60.0});
+    
+    // 回零后移动参数
+    this->declare_parameter<bool>("move_after_homing", false);
+    this->declare_parameter<std::vector<double>>("move_after_homing_positions", {240.0});
 
     // 创建发布者 (Publisher)
     // 发布运动状态
@@ -271,6 +275,51 @@ void ZmcController::start() {
                 RCLCPP_INFO(this->get_logger(), "开始启动时自动回零");
                 if (homeAxes(homing_axes_int, homing_timeout)) {
                     RCLCPP_INFO(this->get_logger(), "所有轴回零成功");
+                    
+                    // 检查是否需要在回零后移动
+                    bool move_after_homing = this->get_parameter("move_after_homing").as_bool();
+                    if (move_after_homing) {
+                        auto move_positions = this->get_parameter("move_after_homing_positions").as_double_array();
+                        
+                        // 使用轴移动参数作为回零后移动的参数
+                        auto max_speed = this->get_parameter("axis_moving_max_speed").as_double_array();
+                        auto acceleration = this->get_parameter("axis_moving_acceleration").as_double_array();
+                        auto deceleration = this->get_parameter("axis_moving_deceleration").as_double_array();
+                        
+                        // 使用第一个轴的参数作为默认值
+                        double move_speed = max_speed.empty() ? 50.0 : max_speed[0];
+                        double move_acceleration = acceleration.empty() ? 150.0 : acceleration[0];
+                        double move_deceleration = deceleration.empty() ? 150.0 : deceleration[0];
+                        
+                        // 转换类型
+                        std::vector<float> move_positions_float;
+                        for (auto pos : move_positions) {
+                            move_positions_float.push_back(static_cast<float>(pos));
+                        }
+                        
+                        // 确保位置数量与轴数量匹配
+                        if (move_positions_float.size() < running_axes_.size()) {
+                            // 如果位置数量不足，使用最后一个位置值
+                            if (!move_positions_float.empty()) {
+                                float last_position = move_positions_float.back();
+                                while (move_positions_float.size() < running_axes_.size()) {
+                                    move_positions_float.push_back(last_position);
+                                }
+                            } else {
+                                // 如果没有位置值，使用默认值0
+                                move_positions_float.resize(running_axes_.size(), 0.0f);
+                            }
+                        }
+                        
+                        std::string move_str = "开始执行回零后移动: [" + vectorToString(running_axes_) + "]";
+                        RCLCPP_INFO(this->get_logger(), "%s", move_str.c_str());
+                        if (moveAxes(running_axes_, move_positions_float, static_cast<float>(move_speed), 
+                                    static_cast<float>(move_acceleration), static_cast<float>(move_deceleration))) {
+                            RCLCPP_INFO(this->get_logger(), "回零后移动成功");
+                        } else {
+                            RCLCPP_ERROR(this->get_logger(), "回零后移动失败");
+                        }
+                    }
                 } else {
                     RCLCPP_ERROR(this->get_logger(), "部分轴回零失败");
                 }
@@ -1231,10 +1280,10 @@ bool ZmcController::homeAxes(const std::vector<int>& axes, double timeout) {
 // 初始化轴参数
 void ZmcController::initializeAxisParameters() {
     // 读取轴参数
-    auto pulse_equivalent = this->get_parameter("axis_pulse_equivalent").as_double_array();
-    auto max_speed = this->get_parameter("axis_max_speed").as_double_array();
-    auto acceleration = this->get_parameter("axis_acceleration").as_double_array();
-    auto deceleration = this->get_parameter("axis_deceleration").as_double_array();
+    auto pulse_equivalent = this->get_parameter("axis_moving_pulse_equivalent").as_double_array();
+    auto max_speed = this->get_parameter("axis_moving_max_speed").as_double_array();
+    auto acceleration = this->get_parameter("axis_moving_acceleration").as_double_array();
+    auto deceleration = this->get_parameter("axis_moving_deceleration").as_double_array();
     
     // 读取回零参数并存储为成员变量
     homing_modes_ = this->get_parameter("axis_homing_mode").as_integer_array();
