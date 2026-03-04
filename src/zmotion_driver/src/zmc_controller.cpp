@@ -1071,27 +1071,7 @@ void ZmcController::executeAxesHoming(
         auto homing_modes = this->get_parameter("axis_homing_mode").as_integer_array();
         
         // 从参数服务器读取回零超时参数，设置默认值
-        double timeout = 30.0; // 默认30秒
-        try {
-            // 尝试作为数组读取
-            auto timeout_array = this->get_parameter("axis_homing_timeout").as_double_array();
-            if (!timeout_array.empty()) {
-                timeout = timeout_array[0]; // 使用第一个值
-            }
-        } catch (const rclcpp::exceptions::InvalidParameterTypeException& e) {
-            // 尝试作为单个值读取
-            try {
-                timeout = this->get_parameter("axis_homing_timeout").as_double();
-            } catch (const rclcpp::exceptions::InvalidParameterTypeException& e2) {
-                RCLCPP_WARN(this->get_logger(), "无法读取回零超时参数，使用默认值 %.1f 秒", timeout);
-            }
-        }
-        if (timeout <= 0) {
-            timeout = 30.0; // 默认30秒
-            RCLCPP_WARN(this->get_logger(), "回零超时参数无效，使用默认值 %.1f 秒", timeout);
-        }
-        
-        RCLCPP_INFO(this->get_logger(), "回零超时设置为 %.1f 秒", timeout);
+        auto timeout_array = this->get_parameter("axis_homing_timeout").as_double_array();
         
         // 串行执行回零操作：一个轴完成后再启动下一个轴
         for (int64_t axis : goal->axes) {
@@ -1231,7 +1211,11 @@ void ZmcController::executeAxesHoming(
                 goal_handle->publish_feedback(feedback);
                 
                 // 检查超时
-                if (feedback->elapsed_time > timeout) {
+                double axis_timeout = 30.0; // 默认30秒
+                if (!timeout_array.empty() && holding_index >= 0 && static_cast<size_t>(holding_index) < timeout_array.size()) {
+                    axis_timeout = timeout_array[holding_index];
+                }
+                if (feedback->elapsed_time > axis_timeout) {
                     throw std::runtime_error("轴 " + std::to_string(axis) + " 回零超时");
                 }
                 
@@ -1315,20 +1299,15 @@ bool ZmcController::homeAxes(const std::vector<int64_t>& axes) {
     
     // 从参数服务器读取回零超时参数，设置默认值
     double timeout = 30.0; // 默认30秒
+    
+    // 直接从参数服务器读取超时参数
     try {
-        // 尝试作为数组读取
-        auto timeout_array = this->get_parameter("axis_homing_timeout").as_double_array();
-        if (!timeout_array.empty()) {
-            timeout = timeout_array[0]; // 使用第一个值
-        }
+        timeout = this->get_parameter("axis_homing_timeout").as_double();
     } catch (const rclcpp::exceptions::InvalidParameterTypeException& e) {
-        // 尝试作为单个值读取
-        try {
-            timeout = this->get_parameter("axis_homing_timeout").as_double();
-        } catch (const rclcpp::exceptions::InvalidParameterTypeException& e2) {
-            RCLCPP_WARN(this->get_logger(), "无法读取回零超时参数，使用默认值 %.1f 秒", timeout);
-        }
+        RCLCPP_WARN(this->get_logger(), "无法读取回零超时参数，使用默认值 %.1f 秒", timeout);
     }
+    
+    // 验证超时参数有效性
     if (timeout <= 0) {
         timeout = 30.0; // 默认30秒
         RCLCPP_WARN(this->get_logger(), "回零超时参数无效，使用默认值 %.1f 秒", timeout);
@@ -1355,6 +1334,15 @@ bool ZmcController::homeAxes(const std::vector<int64_t>& axes) {
         
         RCLCPP_INFO(this->get_logger(), "开始轴 %ld 回零，模式: %ld", axis, homing_mode);
         
+        // 获取回零开始前的位置
+        float start_position = 0.0;
+        getMpos(static_cast<int>(axis), start_position);
+        float target_position = 0.0; // 回零的目标位置通常是0
+        float total_distance = fabs(start_position - target_position);
+        
+        RCLCPP_INFO(this->get_logger(), "轴 %ld 回零开始，起始位置: %.3f, 目标位置: %.3f, 总距离: %.3f", 
+                   axis, start_position, target_position, total_distance);
+        
         // 执行回零操作（使用总线命令）
         if (!checkError(ZAux_BusCmd_Datum(handle_, axis, homing_mode))) {
             RCLCPP_ERROR(this->get_logger(), "轴 %ld 启动回零失败", axis);
@@ -1367,6 +1355,7 @@ bool ZmcController::homeAxes(const std::vector<int64_t>& axes) {
         // 等待当前轴回零完成
         bool axis_completed = false;
         auto start_time = std::chrono::steady_clock::now();
+        int last_progress = -1; // 用于跟踪上次输出的进度，避免重复输出
         
         while (!axis_completed) {
             // 再次检查控制器连接状态
@@ -1389,23 +1378,49 @@ bool ZmcController::homeAxes(const std::vector<int64_t>& axes) {
             int32 mtype = 0;
             bool mtype_ok = checkError(ZAux_Direct_GetMtype(handle_, axis, &mtype));
             
+            // 计算已执行时间
+            auto current_time = std::chrono::steady_clock::now();
+            auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(current_time - start_time);
+            double elapsed_seconds = static_cast<double>(elapsed.count());
+            
+            // 读取当前位置
+            float current_position = 0.0;
+            getMpos(static_cast<int>(axis), current_position);
+            
+            // 计算基于位置的进度
+            int progress = 0;
+            if (total_distance > 0.001) { // 避免除以零
+                float completed_distance = fabs(start_position - current_position);
+                progress = static_cast<int>((completed_distance / total_distance) * 100.0);
+                if (progress > 100) progress = 100;
+            } else {
+                progress = 100; // 如果总距离很小，直接认为已完成
+            }
+            
             // 判断回零完成条件
             if (home_status_ok && idle_status_ok && mtype_ok) {
                 if (homing_status == 1 && idle_status == -1 && mtype == 0) {
                     // 回零成功完成：回零状态正常 + 物理停止 + 逻辑任务结束
                     axis_status[axis].completed = true;
                     axis_status[axis].success = true;
-                    RCLCPP_INFO(this->get_logger(), "轴 %ld 回零成功", axis);
+                    RCLCPP_INFO(this->get_logger(), "轴 %ld 回零成功，耗时: %.1f 秒，最终位置: %.3f", axis, elapsed_seconds, current_position);
                     
                     // 检查是否需要在回零后移动
                     bool move_after_homing = this->get_parameter("move_after_homing").as_bool();
                     if (move_after_homing) {
                         // 获取回零后移动位置
-                        float position = getAxisHomingMovePosition(axis);
+                        float move_position = getAxisHomingMovePosition(axis);
+                        
+                        // 计算移动距离
+                        float move_start_position = 0.0; // 回零后的位置
+                        getMpos(static_cast<int>(axis), move_start_position);
+                        float move_total_distance = fabs(move_start_position - move_position);
+                        
+                        RCLCPP_INFO(this->get_logger(), "轴 %ld 开始回零后移动到位置 %.3f，起始位置: %.3f, 总距离: %.3f", 
+                                   axis, move_position, move_start_position, move_total_distance);
                         
                         // 执行移动操作
-                        RCLCPP_INFO(this->get_logger(), "轴 %ld 开始回零后移动到位置 %.3f", axis, position);
-                        if (!moveAxes({axis}, {position})) {
+                        if (!moveAxes({axis}, {move_position})) {
                             RCLCPP_ERROR(this->get_logger(), "轴 %ld 回零后移动失败", axis);
                             // 回零后移动失败不影响回零成功状态
                         } else {
@@ -1416,6 +1431,13 @@ bool ZmcController::homeAxes(const std::vector<int64_t>& axes) {
                     axis_completed = true;
                 } else if (homing_status == 0) {
                     // 回零还在进行中，继续等待
+                    // 每10%进度或状态变化时输出一次进度信息
+                    if (progress % 10 == 0 && progress != last_progress) {
+                        RCLCPP_INFO(this->get_logger(), "轴 %ld 回零进度: %d%%, 耗时: %.1f 秒, 当前位置: %.3f, 已完成距离: %.3f/%.3f", 
+                                   axis, progress, elapsed_seconds, current_position, 
+                                   fabs(start_position - current_position), total_distance);
+                        last_progress = progress;
+                    }
                     RCLCPP_DEBUG(this->get_logger(), "轴 %ld 回零状态: 进行中 (home_status=%d, idle=%d, mtype=%d)", 
                                 axis, homing_status, idle_status, mtype);
                     // 短暂休眠，避免过度占用CPU
@@ -1437,10 +1459,8 @@ bool ZmcController::homeAxes(const std::vector<int64_t>& axes) {
             }
             
             // 检查超时
-            auto current_time = std::chrono::steady_clock::now();
-            auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(current_time - start_time);
-            if (elapsed.count() > timeout) {
-                RCLCPP_ERROR(this->get_logger(), "轴 %ld 回零超时", axis);
+            if (elapsed_seconds > timeout) {
+                RCLCPP_ERROR(this->get_logger(), "轴 %ld 回零超时，耗时: %.1f 秒，当前位置: %.3f", axis, elapsed_seconds, current_position);
                 axis_status[axis].completed = true;
                 axis_status[axis].success = false;
                 return false;
@@ -1471,13 +1491,9 @@ bool ZmcController::homeAxes(const std::vector<int64_t>& axes) {
 // 初始化轴参数
 void ZmcController::initializeAxisParameters() {
 
-    // 读取running_axes参数并转换类型
-    auto running_axes_param = this->get_parameter("running_axes").as_integer_array();
-    // 直接使用int64_t数组，无需转换
-    running_axes_.reserve(running_axes_param.size());
-    for (int64_t axis : running_axes_param) {
-        running_axes_.push_back(axis);
-    }
+    // 读取running_axes参数并赋值
+    running_axes_ = this->get_parameter("running_axes").as_integer_array();
+
     std::string axes_str = "实际可控轴: [" + vectorToString(running_axes_) + "]";
     RCLCPP_INFO(this->get_logger(), "%s", axes_str.c_str());
 
