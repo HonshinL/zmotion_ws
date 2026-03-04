@@ -162,7 +162,7 @@ public:
      * @param timeout 超时时间（秒）
      * @return 是否所有轴都回零成功
      */
-    bool homeAxes(const std::vector<int>& axes);
+    bool homeAxes(const std::vector<int64_t>& axes);
     
     /**
      * @brief 初始化轴参数
@@ -178,7 +178,7 @@ public:
      * @param deceleration 减速度
      * @return 是否成功启动运动
      */
-    bool moveAxes(const std::vector<int>& target_axes, const std::vector<float>& target_positions);
+    bool moveAxes(const std::vector<int64_t>& target_axes, const std::vector<double>& target_positions);
     
     /**
      * @brief 执行单轴移动（重载）
@@ -199,7 +199,7 @@ public:
      * @param tolerance 容差
      * @return 是否到达
      */
-    bool isAxisAtPosition(int axis, float target_position, float tolerance = 0.001);
+    bool isAxisAtPosition(int axis, double target_position, double tolerance = 0.001);
     
     /**
      * @brief 处理ObjectPosition消息，移动结构到目标位置
@@ -228,8 +228,8 @@ public:
      * @brief 监控轴运动进度（内部方法）
      * @param target_axes 目标轴列表
      * @param target_positions 目标位置列表
-     */
-    void monitorAxesMotion(const std::vector<int>& target_axes, const std::vector<float>& target_positions);
+     */// 监控轴运动进度（内部方法）
+    void monitorAxesMotion(const std::vector<int64_t>& target_axes, const std::vector<double>& target_positions);
     
     /**
      * @brief 通用轴监控函数（内部方法）
@@ -240,11 +240,11 @@ public:
      * @return 是否所有轴都完成
      */
     template <typename CheckFunc>
-    bool monitorAxes(const std::vector<int>& axes, double timeout, CheckFunc check_func, const std::string& operation_name);
+    bool monitorAxes(const std::vector<int64_t>& axes, double timeout, CheckFunc check_func, const std::string& operation_name);
     
     // 通用轴监控函数实现
     // template <typename CheckFunc>
-    // bool ZmcController::monitorAxes(const std::vector<int>& axes, double timeout, CheckFunc check_func, const std::string& operation_name) {
+    // bool ZmcController::monitorAxes(const std::vector<int32_t>& axes, double timeout, CheckFunc check_func, const std::string& operation_name) {
     //     auto start_time = std::chrono::steady_clock::now();
     //     bool all_axes_completed = false;
         
@@ -305,6 +305,7 @@ public:
      * @return true 成功，false 失败
      */
     bool getMpos(int axis, float& position);
+    bool getMpos(int axis, double& position); // 重载版本：支持double类型
 
     // 速度相关方法
     /**
@@ -314,6 +315,7 @@ public:
      * @return true 成功，false 失败
      */
     bool getCurSpeed(int axis, float& speed);
+    bool getCurSpeed(int axis, double& speed); // 重载版本：支持double类型
 
     /**
      * @brief 获取指定轴的加速度
@@ -403,12 +405,13 @@ private:
      */
     void timer_callback();
 
-    // 辅助方法
-    std::string vectorToString(const std::vector<int>& vec) const;
-    std::vector<int> convertInt64ToInt(const std::vector<int64_t>& int64_vec) const;
-    int getAxisHoldingIndex(int axis) const;
+    // 辅助函数
+    std::string vectorToString(const std::vector<int32_t>& vec) const;
+    std::string vectorToString(const std::vector<int64_t>& vec) const; // 重载版本：支持int64_t类型
+    std::vector<int32_t> convertInt64ToInt(const std::vector<int64_t>& int64_vec) const;
+    int64_t getAxisHoldingIndex(int64_t axis) const;
     void setAxisMoveParameters();
-    float getAxisHomingMovePosition(int axis);
+    float getAxisHomingMovePosition(int64_t axis);
     void setAxisHomeParameters();
     
     /**
@@ -426,7 +429,7 @@ private:
     int connect_search_timeout_ms_{1000}; ///< 搜索超时 (ms)
 
     // ROS2相关成员
-    std::vector<int> running_axes_ = {};  ///< 实际可控轴列表
+    std::vector<int64_t> running_axes_ = {};  ///< 实际可控轴列表
     rclcpp::TimerBase::SharedPtr timer_;  ///< 定时器
     rclcpp::Publisher<motion_msgs::msg::MotionStatus>::SharedPtr motion_status_pub_;  ///< 运动状态发布者
     rclcpp::Subscription<motion_msgs::msg::ObjectPosition>::SharedPtr object_position_sub_;  ///< 目标位置订阅者
@@ -444,8 +447,8 @@ private:
     
     // 轴参数
     
-    static constexpr int NUM_AXES = 5;  ///< 轴数量
-    static constexpr int AXES[NUM_AXES] = {0, 1, 2, 4, 5};  ///< 轴列表定义
+    static constexpr int64_t NUM_AXES = 5;  ///< 轴数量
+    static constexpr int64_t AXES[NUM_AXES] = {0, 1, 2, 4, 5};  ///< 轴列表定义
 };
 
 #endif // ZMC_CONTROLLER_H

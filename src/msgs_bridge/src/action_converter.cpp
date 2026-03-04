@@ -76,15 +76,15 @@ private:
     }
     
     // 发送单轴运动 Action
-    void send_move_action(int axis_num, float target_position) {
+    void send_move_action(int32_t axis_num, double target_position) {
         if (!action_client_->wait_for_action_server(std::chrono::seconds(5))) {
             RCLCPP_ERROR(this->get_logger(), "Action 服务器不可用");
             return;
         }
         
         auto goal_msg = AxesMoving::Goal();
-        goal_msg.target_axes = {axis_num};
-        goal_msg.target_positions = {target_position};
+        goal_msg.target_axes = {static_cast<long int>(axis_num)};
+        goal_msg.target_positions = {static_cast<double>(target_position)};
         goal_msg.speed = {50.0};
         goal_msg.acceleration = {100.0};
         goal_msg.deceleration = {100.0};
@@ -102,21 +102,37 @@ private:
     }
     
     // 发送多轴运动 Action
-    void send_multi_axis_action(const std::vector<int32_t>& axes, const std::vector<float>& positions) {
+    void send_multi_axis_action(const std::vector<int32_t>& axes, const std::vector<double>& positions) {
         if (!action_client_->wait_for_action_server(std::chrono::seconds(5))) {
             RCLCPP_ERROR(this->get_logger(), "Action 服务器不可用");
             return;
         }
         
         auto goal_msg = AxesMoving::Goal();
-        goal_msg.target_axes = axes;
-        goal_msg.target_positions = positions;
+        // 将std::vector<int>转换为std::vector<long int>
+        std::vector<long int> target_axes_long;
+        target_axes_long.reserve(axes.size());
+        for (int axis : axes) {
+            target_axes_long.push_back(static_cast<long int>(axis));
+        }
+        goal_msg.target_axes = target_axes_long;
+        // 将std::vector<float>转换为std::vector<double>
+        std::vector<double> positions_double;
+        positions_double.reserve(positions.size());
+        for (float pos : positions) {
+            positions_double.push_back(static_cast<double>(pos));
+        }
+        goal_msg.target_positions = positions_double;
         
         // 创建与axes大小相同的速度、加速度和减速度数组
         size_t num_axes = axes.size();
-        goal_msg.speed.resize(num_axes, 50.0);
-        goal_msg.acceleration.resize(num_axes, 100.0);
-        goal_msg.deceleration.resize(num_axes, 100.0);
+        // 设置速度、加速度和减速度数组
+        std::vector<double> speed_array(axes.size(), 50.0);
+        std::vector<double> acceleration_array(axes.size(), 100.0);
+        std::vector<double> deceleration_array(axes.size(), 100.0);
+        goal_msg.speed = speed_array;
+        goal_msg.acceleration = acceleration_array;
+        goal_msg.deceleration = deceleration_array;
         
         auto send_goal_options = rclcpp_action::Client<AxesMoving>::SendGoalOptions();
         send_goal_options.goal_response_callback =
