@@ -242,45 +242,6 @@ public:
     template <typename CheckFunc>
     bool monitorAxes(const std::vector<int64_t>& axes, double timeout, CheckFunc check_func, const std::string& operation_name);
     
-    // 通用轴监控函数实现
-    // template <typename CheckFunc>
-    // bool ZmcController::monitorAxes(const std::vector<int32_t>& axes, double timeout, CheckFunc check_func, const std::string& operation_name) {
-    //     auto start_time = std::chrono::steady_clock::now();
-    //     bool all_axes_completed = false;
-        
-    //     while (!all_axes_completed) {
-    //         all_axes_completed = true;
-    //         int completed_axes = 0;
-            
-    //         for (int axis : axes) {
-    //             bool completed = check_func(axis);
-    //             if (!completed) {
-    //                 all_axes_completed = false;
-    //             } else {
-    //                 completed_axes++;
-    //             }
-    //         }
-            
-    //         // 检查超时
-    //         auto current_time = std::chrono::steady_clock::now();
-    //         auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(current_time - start_time);
-    //         if (elapsed.count() > timeout) {
-    //             RCLCPP_ERROR(this->get_logger(), "%s 超时", operation_name.c_str());
-    //             return false;
-    //         }
-            
-    //         float progress = static_cast<float>(completed_axes) / axes.size() * 100.0f;
-    //         RCLCPP_DEBUG(this->get_logger(), "%s 进度: %.1f%%, 耗时: %lds", operation_name.c_str(), progress, elapsed.count());
-            
-    //         if (!all_axes_completed) {
-    //             std::this_thread::sleep_for(std::chrono::milliseconds(100));
-    //         }
-    //     }
-        
-    //     RCLCPP_INFO(this->get_logger(), "%s 完成", operation_name.c_str());
-    //     return true;
-    // }
-
     // 位置相关方法
     /**
      * @brief 获取指定轴的命令位置

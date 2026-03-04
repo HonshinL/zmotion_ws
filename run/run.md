@@ -51,22 +51,22 @@ ZAux_Direct_Single_MoveAbs(g_handle, 0, 100.0); // 轴0动，轴1自动跟
 
 
 # 命令行测试
+ros2 run zmotion_driver zmotion_node
 
 ros2 action send_goal /zmc_act/axes_moving motion_msgs/action/AxesMoving "
 {
   target_axes: [0],
   target_positions: [100.0],
-  speed: 20.0,
-  acceleration: 40.0,
-  deceleration: 40.0,
-  wait_for_completion: true
+  speed: [20.0],
+  acceleration: [40.0],
+  deceleration: [40.0],
 }" --feedback
 
 ros2 action send_goal /zmc_act/axes_homing motion_msgs/action/AxesHoming '{
   "axes": [0],
-  "velocity_high": 50.0,
-  "velocity_low": 10.0,
-  "velocity_creep": 10.0,
+  "velocity_high": [50.0],
+  "velocity_low": [10.0],
+  "velocity_creep": [10.0],
   "homing_modes": [11],
-  "homing_timeout": 60.0
+  "homing_timeout": [60.0]
 }' --feedback

@@ -1024,8 +1024,6 @@ void ZmcController::handleAxesHomingAccepted(
     std::thread{std::bind(&ZmcController::executeAxesHoming, this, goal_handle)}.detach();
 }
 
-
-
 // 执行多轴回零的Action（异步执行）
 void ZmcController::executeAxesHoming(
     const std::shared_ptr<rclcpp_action::ServerGoalHandle<motion_msgs::action::AxesHoming>> goal_handle) {
