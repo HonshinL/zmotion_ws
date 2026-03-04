@@ -1044,16 +1044,57 @@ void ZmcController::executeAxesHoming(
             throw std::runtime_error("控制器未连接");
         }
         
-        // 执行多轴回零
-        if (!homeAxes(goal->axes)) {
-            throw std::runtime_error("启动多轴回零失败");
+        // 验证轴参数有效性
+        if (goal->axes.empty()) {
+            throw std::runtime_error("轴列表为空");
         }
         
-        // 等待所有轴回零完成
-        auto start_time = std::chrono::steady_clock::now();
-        bool all_homed = false;
+        for (int64_t axis : goal->axes) {
+            if (axis < 0 || axis > 5) {
+                throw std::runtime_error("轴号 " + std::to_string(axis) + " 无效");
+            }
+        }
         
-        while (action_running_ && !all_homed) {
+        RCLCPP_INFO(this->get_logger(), "开始执行多轴回零，轴列表: %s", vectorToString(goal->axes).c_str());
+        
+        // 存储每个轴的回零状态
+        struct AxisHomingStatus {
+            bool completed = false;
+            bool success = false;
+        };
+        std::map<int64_t, AxisHomingStatus> axis_status;
+        
+        // 设置所有轴的回零参数
+        setAxisHomeParameters();
+        
+        // 读取回零模式参数
+        auto homing_modes = this->get_parameter("axis_homing_mode").as_integer_array();
+        
+        // 从参数服务器读取回零超时参数，设置默认值
+        double timeout = 30.0; // 默认30秒
+        try {
+            // 尝试作为数组读取
+            auto timeout_array = this->get_parameter("axis_homing_timeout").as_double_array();
+            if (!timeout_array.empty()) {
+                timeout = timeout_array[0]; // 使用第一个值
+            }
+        } catch (const rclcpp::exceptions::InvalidParameterTypeException& e) {
+            // 尝试作为单个值读取
+            try {
+                timeout = this->get_parameter("axis_homing_timeout").as_double();
+            } catch (const rclcpp::exceptions::InvalidParameterTypeException& e2) {
+                RCLCPP_WARN(this->get_logger(), "无法读取回零超时参数，使用默认值 %.1f 秒", timeout);
+            }
+        }
+        if (timeout <= 0) {
+            timeout = 30.0; // 默认30秒
+            RCLCPP_WARN(this->get_logger(), "回零超时参数无效，使用默认值 %.1f 秒", timeout);
+        }
+        
+        RCLCPP_INFO(this->get_logger(), "回零超时设置为 %.1f 秒", timeout);
+        
+        // 串行执行回零操作：一个轴完成后再启动下一个轴
+        for (int64_t axis : goal->axes) {
             // 检查Action是否被取消
             if (goal_handle->is_canceling()) {
                 result->success = false;
@@ -1065,49 +1106,140 @@ void ZmcController::executeAxesHoming(
                 return;
             }
             
-            // 检查所有轴的回零状态
-            all_homed = true;
-            feedback->current_positions.clear();
-            feedback->drive_statuses.clear();
+            // 再次检查控制器连接状态
+            if (!is_connected_) {
+                throw std::runtime_error("控制器连接断开");
+            }
             
-            for (int64_t axis : goal->axes) {
-                int status = 0;
-                uint32 home_status = 0;
-                if (!checkError(ZAux_BusCmd_GetHomeStatus(handle_, static_cast<int>(axis), &home_status))) {
-                    all_homed = false;
-                }
-                if (home_status != 1) { // 1表示回零完成
-                    all_homed = false;
+            // 获取轴在holding_axes中的索引
+            int64_t holding_index = getAxisHoldingIndex(axis);
+            
+            // 获取回零模式
+            int64_t homing_mode = 11;
+            if (holding_index >= 0 && static_cast<size_t>(holding_index) < homing_modes.size()) {
+                homing_mode = static_cast<int>(homing_modes[holding_index]);
+            }
+            
+            RCLCPP_INFO(this->get_logger(), "开始轴 %ld 回零，模式: %ld", axis, homing_mode);
+            
+            // 执行回零操作（使用总线命令）
+            if (!checkError(ZAux_BusCmd_Datum(handle_, static_cast<int>(axis), homing_mode))) {
+                throw std::runtime_error("轴 " + std::to_string(axis) + " 启动回零失败");
+            }
+            
+            // 初始化轴状态
+            axis_status[axis] = AxisHomingStatus();
+            
+            // 等待当前轴回零完成
+            bool axis_completed = false;
+            auto start_time = std::chrono::steady_clock::now();
+            
+            while (!axis_completed && action_running_) {
+                // 检查Action是否被取消
+                if (goal_handle->is_canceling()) {
+                    result->success = false;
+                    result->message = "Action被用户取消";
+                    result->error_codes = std::vector<int64_t>(goal->axes.size(), -1);
+                    goal_handle->canceled(result);
+                    action_running_ = false;
+                    RCLCPP_INFO(this->get_logger(), "Action执行被取消");
+                    return;
                 }
                 
-                // 获取当前位置
+                // 再次检查控制器连接状态
+                if (!is_connected_) {
+                    throw std::runtime_error("控制器连接断开");
+                }
+                
+                // 读取回零状态
+                uint32 homing_status = 0;
+                bool home_status_ok = checkError(ZAux_BusCmd_GetHomeStatus(handle_, static_cast<int>(axis), &homing_status));
+                
+                // 读取轴状态（物理停止状态）
+                int32 idle_status = 0;
+                bool idle_status_ok = checkError(ZAux_Direct_GetIfIdle(handle_, static_cast<int>(axis), &idle_status));
+                
+                // 读取运动类型（逻辑任务状态）
+                int32 mtype = 0;
+                bool mtype_ok = checkError(ZAux_Direct_GetMtype(handle_, static_cast<int>(axis), &mtype));
+                
+                // 判断回零完成条件
+                if (home_status_ok && idle_status_ok && mtype_ok) {
+                    if (homing_status == 1 && idle_status == -1 && mtype == 0) {
+                        // 回零成功完成：回零状态正常 + 物理停止 + 逻辑任务结束
+                        axis_status[axis].completed = true;
+                        axis_status[axis].success = true;
+                        RCLCPP_INFO(this->get_logger(), "轴 %ld 回零成功", axis);
+                        
+                        // 检查是否需要在回零后移动
+                        bool move_after_homing = this->get_parameter("move_after_homing").as_bool();
+                        if (move_after_homing) {
+                            // 获取回零后移动位置
+                            float position = getAxisHomingMovePosition(axis);
+                            
+                            // 执行移动操作
+                            RCLCPP_INFO(this->get_logger(), "轴 %ld 开始回零后移动到位置 %.3f", axis, position);
+                            if (!moveAxes({axis}, {position})) {
+                                RCLCPP_ERROR(this->get_logger(), "轴 %ld 回零后移动失败", axis);
+                                // 回零后移动失败不影响回零成功状态
+                            } else {
+                                RCLCPP_INFO(this->get_logger(), "轴 %ld 回零后移动成功", axis);
+                            }
+                        }
+                        
+                        axis_completed = true;
+                    } else if (homing_status == 0) {
+                        // 回零还在进行中，继续等待
+                        RCLCPP_DEBUG(this->get_logger(), "轴 %ld 回零状态: 进行中 (home_status=%d, idle=%d, mtype=%d)", 
+                                    axis, homing_status, idle_status, mtype);
+                    } else {
+                        // 其他状态值，视为异常
+                        axis_status[axis].completed = true;
+                        axis_status[axis].success = false;
+                        RCLCPP_WARN(this->get_logger(), "轴 %ld 获取状态失败: home=%d, idle=%d, mtype=%d", 
+                                axis, homing_status, idle_status, mtype);
+                        axis_completed = true;
+                    }
+                } else {
+                    // 状态获取失败，继续尝试
+                    RCLCPP_WARN(this->get_logger(), "轴 %ld 获取状态失败: home=%d, idle=%d, mtype=%d", 
+                                axis, home_status_ok ? 1 : 0, idle_status_ok ? 1 : 0, mtype_ok ? 1 : 0);
+                }
+                
+                // 更新反馈信息
+                feedback->current_positions.clear();
+                feedback->drive_statuses.clear();
+                
+                // 获取当前轴的位置
                 float current_position = 0.0;
                 if (!getMpos(static_cast<int>(axis), current_position)) {
                     RCLCPP_WARN(this->get_logger(), "无法获取轴 %ld 的当前位置", axis);
                 }
                 
                 feedback->current_positions.push_back(current_position);
-                feedback->drive_statuses.push_back(static_cast<int32_t>(home_status));
+                feedback->drive_statuses.push_back(static_cast<int32_t>(homing_status));
+                
+                // 更新反馈状态
+                feedback->current_state = axis_completed ? "轴回零完成" : "回零中";
+                
+                // 计算已执行时间
+                auto current_time = std::chrono::steady_clock::now();
+                auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(current_time - start_time);
+                feedback->elapsed_time = static_cast<double>(elapsed.count());
+                
+                // 发布反馈
+                goal_handle->publish_feedback(feedback);
+                
+                // 检查超时
+                if (feedback->elapsed_time > timeout) {
+                    throw std::runtime_error("轴 " + std::to_string(axis) + " 回零超时");
+                }
+                
+                // 短暂休眠，避免过度占用CPU
+                std::this_thread::sleep_for(std::chrono::milliseconds(100));
             }
             
-            // 更新反馈信息
-            feedback->current_state = all_homed ? "所有轴回零完成" : "回零中";
-            
-            // 计算已执行时间
-            auto current_time = std::chrono::steady_clock::now();
-            auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(current_time - start_time);
-            feedback->elapsed_time = static_cast<double>(elapsed.count());
-            
-            // 发布反馈
-            goal_handle->publish_feedback(feedback);
-            
-            // 检查超时（使用第一个轴的超时时间作为整个回零过程的超时时间）
-            if (!goal->homing_timeout.empty() && feedback->elapsed_time > goal->homing_timeout[0]) {
-                throw std::runtime_error("回零超时");
-            }
-            
-            // 短暂休眠，避免过度占用CPU
-            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            RCLCPP_INFO(this->get_logger(), "轴 %ld 回零完成，继续下一个轴", axis);
         }
         
         if (action_running_) {
