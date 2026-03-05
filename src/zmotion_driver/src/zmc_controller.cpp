@@ -986,30 +986,7 @@ rclcpp_action::GoalResponse ZmcController::handleAxesHomingGoal(
         }
     }
     
-    if (goal->velocity_high.empty() || goal->velocity_high.size() != goal->axes.size() ||
-        goal->velocity_low.empty() || goal->velocity_low.size() != goal->axes.size()) {
-        RCLCPP_ERROR(this->get_logger(), "速度参数数组大小与轴数不匹配，拒绝Action请求");
-        return rclcpp_action::GoalResponse::REJECT;
-    }
-    
-    for (size_t i = 0; i < goal->axes.size(); ++i) {
-        if (goal->velocity_high[i] <= 0 || goal->velocity_low[i] <= 0) {
-            RCLCPP_ERROR(this->get_logger(), "速度参数无效，拒绝Action请求");
-            return rclcpp_action::GoalResponse::REJECT;
-        }
-    }
-    
-    if (goal->homing_timeout.empty() || goal->homing_timeout.size() != goal->axes.size()) {
-        RCLCPP_ERROR(this->get_logger(), "超时时间数组大小与轴数不匹配，拒绝Action请求");
-        return rclcpp_action::GoalResponse::REJECT;
-    }
-    
-    for (double timeout : goal->homing_timeout) {
-        if (timeout <= 0) {
-            RCLCPP_ERROR(this->get_logger(), "超时时间无效，拒绝Action请求");
-            return rclcpp_action::GoalResponse::REJECT;
-        }
-    }
+    // 其他参数从参数服务器读取，不在action消息中传递
     
     RCLCPP_INFO(this->get_logger(), "接受多轴回零Action请求");
     return rclcpp_action::GoalResponse::ACCEPT_AND_EXECUTE;

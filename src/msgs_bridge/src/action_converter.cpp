@@ -161,11 +161,7 @@ private:
         
         auto goal_msg = AxesHoming::Goal();
         goal_msg.axes = {static_cast<int64_t>(axis_num)};
-        goal_msg.homing_modes = {11}; // 默认回零模式
-        goal_msg.velocity_high = {50.0}; // 高速
-        goal_msg.velocity_low = {10.0}; // 低速
-        goal_msg.velocity_creep = {5.0}; // 蠕动速度
-        goal_msg.homing_timeout = {30.0}; // 超时时间
+        // 其他参数从参数服务器读取，不在action消息中传递
         
         auto send_goal_options = rclcpp_action::Client<AxesHoming>::SendGoalOptions();
         send_goal_options.goal_response_callback = 

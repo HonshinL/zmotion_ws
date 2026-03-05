@@ -1,10 +1,5 @@
 # 目标位置（Goal）
 int64[] axes              # 要回零的轴列表
-float64[] velocity_high     # 第一阶段寻找开关的高速数组
-float64[] velocity_low      # 第二阶段寻找Z脉冲的低速数组
-float64[] velocity_creep    # 回零蠕动速度数组
-int64[] homing_modes      # 对应 6098 模式（如模式 11）数组
-float64[] homing_timeout           # 超时时间（秒）数组
 
 ---
 # 结果（Result）
