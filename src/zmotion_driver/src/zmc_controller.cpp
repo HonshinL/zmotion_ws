@@ -579,7 +579,7 @@ void ZmcController::handleConvertDxfToXml(const std::shared_ptr<motion_msgs::srv
 // 处理轴移动Action目标请求
 rclcpp_action::GoalResponse ZmcController::handleAxesMovingGoal(
     const rclcpp_action::GoalUUID & uuid, std::shared_ptr<const motion_msgs::action::AxesMoving::Goal> goal) {
-    
+        
     RCLCPP_INFO(this->get_logger(), "收到轴移动Action请求");
     
     // 检查控制器是否连接

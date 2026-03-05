@@ -8,11 +8,14 @@
 #include "rclcpp_action/rclcpp_action.hpp"
 #include "slms_interface/msg/object_position.hpp"
 #include "motion_msgs/action/axes_moving.hpp"
+#include "motion_msgs/action/axes_homing.hpp"
 
 class ObjectPositionToActionConverter : public rclcpp::Node {
 public:
     using AxesMoving = motion_msgs::action::AxesMoving;
     using GoalHandleMove = rclcpp_action::ClientGoalHandle<AxesMoving>;
+    using AxesHoming = motion_msgs::action::AxesHoming;
+    using GoalHandleHome = rclcpp_action::ClientGoalHandle<AxesHoming>;
 
     explicit ObjectPositionToActionConverter(const rclcpp::NodeOptions & options = rclcpp::NodeOptions())
         : Node("object_position_to_action_converter", options) {
@@ -25,9 +28,12 @@ public:
         // 创建 AxesMoving Action 客户端
         action_client_ = rclcpp_action::create_client<AxesMoving>(this, "zmc_act/axes_moving");
         
+        // 创建 AxesHoming Action 客户端
+        homing_client_ = rclcpp_action::create_client<AxesHoming>(this, "zmc_act/axes_homing");
+        
         RCLCPP_INFO(this->get_logger(), "ObjectPosition 到 Action 转换节点已启动");
         RCLCPP_INFO(this->get_logger(), "订阅话题: /app_pos");
-        RCLCPP_INFO(this->get_logger(), "发布 Action: zmc_act/axes_moving");
+        RCLCPP_INFO(this->get_logger(), "发布 Action: zmc_act/axes_moving, zmc_act/axes_homing");
     }
 
 private:
@@ -45,7 +51,7 @@ private:
         switch (msg->mode) {
             case 0: // 单轴回零
                 RCLCPP_INFO(this->get_logger(), "模式0: 单轴回零，轴号: %d", msg->axis_num);
-                // 这里可以实现回零逻辑
+                send_homing_action(msg->axis_num);
                 break;
                 
             case 1: // 单轴运动
@@ -83,19 +89,19 @@ private:
         }
         
         auto goal_msg = AxesMoving::Goal();
-        goal_msg.target_axes = {static_cast<long int>(axis_num)};
+        goal_msg.target_axes = {static_cast<int64_t>(axis_num)};
         goal_msg.target_positions = {static_cast<double>(target_position)};
         goal_msg.speed = {50.0};
         goal_msg.acceleration = {100.0};
         goal_msg.deceleration = {100.0};
         
         auto send_goal_options = rclcpp_action::Client<AxesMoving>::SendGoalOptions();
-        send_goal_options.goal_response_callback =
-            std::bind(&ObjectPositionToActionConverter::goal_response_callback, this, std::placeholders::_1);
-        send_goal_options.feedback_callback =
-            std::bind(&ObjectPositionToActionConverter::feedback_callback, this, std::placeholders::_1, std::placeholders::_2);
-        send_goal_options.result_callback =
-            std::bind(&ObjectPositionToActionConverter::result_callback, this, std::placeholders::_1);
+        send_goal_options.goal_response_callback = 
+            std::bind(&ObjectPositionToActionConverter::move_goal_response_callback, this, std::placeholders::_1);
+        send_goal_options.feedback_callback = 
+            std::bind(&ObjectPositionToActionConverter::move_feedback_callback, this, std::placeholders::_1, std::placeholders::_2);
+        send_goal_options.result_callback = 
+            std::bind(&ObjectPositionToActionConverter::move_result_callback, this, std::placeholders::_1);
         
         RCLCPP_INFO(this->get_logger(), "发送单轴运动 Action: 轴%d -> %.3f", axis_num, target_position);
         action_client_->async_send_goal(goal_msg, send_goal_options);
@@ -109,11 +115,11 @@ private:
         }
         
         auto goal_msg = AxesMoving::Goal();
-        // 将std::vector<int>转换为std::vector<long int>
-        std::vector<long int> target_axes_long;
+        // 将std::vector<int>转换为std::vector<int64_t>
+        std::vector<int64_t> target_axes_long;
         target_axes_long.reserve(axes.size());
         for (int axis : axes) {
-            target_axes_long.push_back(static_cast<long int>(axis));
+            target_axes_long.push_back(static_cast<int64_t>(axis));
         }
         goal_msg.target_axes = target_axes_long;
         // 将std::vector<float>转换为std::vector<double>
@@ -135,33 +141,60 @@ private:
         goal_msg.deceleration = deceleration_array;
         
         auto send_goal_options = rclcpp_action::Client<AxesMoving>::SendGoalOptions();
-        send_goal_options.goal_response_callback =
-            std::bind(&ObjectPositionToActionConverter::goal_response_callback, this, std::placeholders::_1);
-        send_goal_options.feedback_callback =
-            std::bind(&ObjectPositionToActionConverter::feedback_callback, this, std::placeholders::_1, std::placeholders::_2);
-        send_goal_options.result_callback =
-            std::bind(&ObjectPositionToActionConverter::result_callback, this, std::placeholders::_1);
+        send_goal_options.goal_response_callback = 
+            std::bind(&ObjectPositionToActionConverter::move_goal_response_callback, this, std::placeholders::_1);
+        send_goal_options.feedback_callback = 
+            std::bind(&ObjectPositionToActionConverter::move_feedback_callback, this, std::placeholders::_1, std::placeholders::_2);
+        send_goal_options.result_callback = 
+            std::bind(&ObjectPositionToActionConverter::move_result_callback, this, std::placeholders::_1);
         
         RCLCPP_INFO(this->get_logger(), "发送多轴运动 Action: %zu 个轴", axes.size());
         action_client_->async_send_goal(goal_msg, send_goal_options);
     }
     
-    // Action 回调函数
-    void goal_response_callback(const GoalHandleMove::SharedPtr & goal_handle) {
+    // 发送单轴回零 Action
+    void send_homing_action(int32_t axis_num) {
+        if (!homing_client_->wait_for_action_server(std::chrono::seconds(5))) {
+            RCLCPP_ERROR(this->get_logger(), "Homing Action 服务器不可用");
+            return;
+        }
+        
+        auto goal_msg = AxesHoming::Goal();
+        goal_msg.axes = {static_cast<int64_t>(axis_num)};
+        goal_msg.homing_modes = {11}; // 默认回零模式
+        goal_msg.velocity_high = {50.0}; // 高速
+        goal_msg.velocity_low = {10.0}; // 低速
+        goal_msg.velocity_creep = {5.0}; // 蠕动速度
+        goal_msg.homing_timeout = {30.0}; // 超时时间
+        
+        auto send_goal_options = rclcpp_action::Client<AxesHoming>::SendGoalOptions();
+        send_goal_options.goal_response_callback = 
+            std::bind(&ObjectPositionToActionConverter::homing_goal_response_callback, this, std::placeholders::_1);
+        send_goal_options.feedback_callback = 
+            std::bind(&ObjectPositionToActionConverter::homing_feedback_callback, this, std::placeholders::_1, std::placeholders::_2);
+        send_goal_options.result_callback = 
+            std::bind(&ObjectPositionToActionConverter::homing_result_callback, this, std::placeholders::_1);
+        
+        RCLCPP_INFO(this->get_logger(), "发送单轴回零 Action: 轴%d", axis_num);
+        homing_client_->async_send_goal(goal_msg, send_goal_options);
+    }
+    
+    // 运动 Action 回调函数
+    void move_goal_response_callback(const GoalHandleMove::SharedPtr & goal_handle) {
         if (!goal_handle) {
-            RCLCPP_ERROR(this->get_logger(), "目标被拒绝");
+            RCLCPP_ERROR(this->get_logger(), "运动目标被拒绝");
         } else {
-            RCLCPP_INFO(this->get_logger(), "目标被接受");
+            RCLCPP_INFO(this->get_logger(), "运动目标被接受");
         }
     }
     
-    void feedback_callback(
+    void move_feedback_callback(
         GoalHandleMove::SharedPtr,
         const std::shared_ptr<const AxesMoving::Feedback> feedback) {
         RCLCPP_INFO(this->get_logger(), "运动进度: %.1f%%", feedback->progress * 100);
     }
     
-    void result_callback(const GoalHandleMove::WrappedResult & result) {
+    void move_result_callback(const GoalHandleMove::WrappedResult & result) {
         switch (result.code) {
             case rclcpp_action::ResultCode::SUCCEEDED:
                 RCLCPP_INFO(this->get_logger(), "运动完成，结果: %s", result.result->success ? "成功" : "失败");
@@ -178,8 +211,42 @@ private:
         }
     }
     
+    // Homing Action 回调函数
+    void homing_goal_response_callback(const GoalHandleHome::SharedPtr & goal_handle) {
+        if (!goal_handle) {
+            RCLCPP_ERROR(this->get_logger(), "回零目标被拒绝");
+        } else {
+            RCLCPP_INFO(this->get_logger(), "回零目标被接受");
+        }
+    }
+    
+    void homing_feedback_callback(
+        GoalHandleHome::SharedPtr,
+        const std::shared_ptr<const AxesHoming::Feedback> feedback) {
+        RCLCPP_INFO(this->get_logger(), "回零进度: %s, 耗时: %.1f 秒", 
+                   feedback->current_state.c_str(), feedback->elapsed_time);
+    }
+    
+    void homing_result_callback(const GoalHandleHome::WrappedResult & result) {
+        switch (result.code) {
+            case rclcpp_action::ResultCode::SUCCEEDED:
+                RCLCPP_INFO(this->get_logger(), "回零完成，结果: %s", result.result->success ? "成功" : "失败");
+                break;
+            case rclcpp_action::ResultCode::ABORTED:
+                RCLCPP_ERROR(this->get_logger(), "回零被中止");
+                break;
+            case rclcpp_action::ResultCode::CANCELED:
+                RCLCPP_WARN(this->get_logger(), "回零被取消");
+                break;
+            default:
+                RCLCPP_ERROR(this->get_logger(), "未知结果");
+                break;
+        }
+    }
+    
     rclcpp::Subscription<slms_interface::msg::ObjectPosition>::SharedPtr object_position_sub_;
     rclcpp_action::Client<AxesMoving>::SharedPtr action_client_;
+    rclcpp_action::Client<AxesHoming>::SharedPtr homing_client_;
 };
 
 int main(int argc, char * argv[]) {
