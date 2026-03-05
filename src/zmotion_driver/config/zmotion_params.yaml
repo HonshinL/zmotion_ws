@@ -1,0 +1,28 @@
+zmc_node:
+  ros__parameters:
+    # 控制器基本参数
+    controller_ip: "192.168.0.11"
+    running_axes: [0]
+    search_timeout_ms: 10000
+    controller_connect_search_timeout_ms: 10000
+    holding_axes: [0, 1, 2, 4, 5]
+    
+    # 运动参数
+    axis_moving_pulse_equivalent: [13107.2, 13107.2, 13107.2, 1000.0, 1000.0]
+    axis_moving_max_speed: [50.0, 50.0, 50.0, 50.0, 50.0]
+    axis_moving_acceleration: [150.0, 150.0, 150.0, 150.0, 150.0]
+    axis_moving_deceleration: [150.0, 150.0, 150.0, 150.0, 150.0]
+    
+    # 回零参数
+    auto_homing_on_start: true
+    auto_homing_axes: [0]
+    auto_homing_timeout: [60.0, 60.0, 60.0, 60.0, 60.0]
+    axis_homing_mode: [11, 11, 11, 11, 11]
+    axis_homing_velocity_high: [50.0, 50.0, 50.0, 50.0, 50.0]
+    axis_homing_velocity_low: [10.0, 10.0, 10.0, 10.0, 10.0]
+    axis_homing_velocity_creep: [5.0, 5.0, 5.0, 5.0, 5.0]
+    axis_homing_timeout: [60.0, 60.0, 60.0, 60.0, 60.0]
+    
+    # 回零后移动参数
+    move_after_homing: true
+    move_after_homing_positions: [240.0, 0.0, 0.0, 0.0, 0.0]
