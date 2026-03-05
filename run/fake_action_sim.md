@@ -64,3 +64,10 @@ ros2 action send_goal /move_to_position motion_msgs/action/MoveToPosition "
   deceleration: 100.0
 }"
 ```
+
+ros2 topic pub --once /app_pos slms_interface/msg/ObjectPosition "
+pos: [100.0]
+mode: 1
+axis_num: 0
+plane_coord: 0
+"

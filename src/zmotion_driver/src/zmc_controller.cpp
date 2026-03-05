@@ -715,6 +715,14 @@ void ZmcController::executeAxesMoving(
                         axis, target_position, goal->speed[i], goal->acceleration[i]);
         }
         
+        // 记录起始位置
+        std::vector<double> start_positions;
+        for (int64_t axis : goal->target_axes) {
+            double start_pos = 0.0;
+            getMpos(static_cast<int>(axis), start_pos);
+            start_positions.push_back(start_pos);
+        }
+        
         // 监控运动过程
         bool all_axes_completed = false;
         auto start_time = std::chrono::steady_clock::now();
@@ -737,10 +745,12 @@ void ZmcController::executeAxesMoving(
             
             int completed_axes = 0;
             all_axes_completed = true;
+            double total_progress = 0.0;
             
             for (size_t i = 0; i < goal->target_axes.size(); ++i) {
                 int64_t axis = goal->target_axes[i];
                 double target_position = goal->target_positions[i];
+                double start_position = start_positions[i];
                 
                 double current_position = 0.0;
                 double current_velocity = 0.0;
@@ -753,8 +763,18 @@ void ZmcController::executeAxesMoving(
                     // 检查是否到达目标位置
                     if (isAxisAtPosition(axis, target_position)) {
                         completed_axes++;
+                        total_progress += 1.0; // 已完成的轴贡献100%进度
                     } else {
                         all_axes_completed = false;
+                        // 计算当前轴的进度（基于位置）
+                        double total_distance = fabs(target_position - start_position);
+                        if (total_distance > 0.001) { // 避免除以零
+                            double completed_distance = fabs(current_position - start_position);
+                            double axis_progress = completed_distance / total_distance;
+                            total_progress += axis_progress;
+                        } else {
+                            total_progress += 1.0; // 如果距离很小，视为已完成
+                        }
                     }
                 } else {
                     all_axes_completed = false;
@@ -762,8 +782,9 @@ void ZmcController::executeAxesMoving(
                 }
             }
             
-            // 计算进度
-            feedback->progress = static_cast<float>(completed_axes) / goal->target_axes.size();
+            // 计算总进度
+            feedback->progress = static_cast<float>(total_progress) / goal->target_axes.size();
+            if (feedback->progress > 1.0) feedback->progress = 1.0; // 确保进度不超过100%
             feedback->current_status = "移动中，已完成 " + std::to_string(completed_axes) + "/" + 
                                       std::to_string(goal->target_axes.size()) + " 个轴";
             
@@ -1440,7 +1461,7 @@ bool ZmcController::homeAxes(const std::vector<int64_t>& axes) {
                     // 回零还在进行中，继续等待
                     // 每10%进度或状态变化时输出一次进度信息
                     if (progress % 10 == 0 && progress != last_progress) {
-                        RCLCPP_INFO(this->get_logger(), "轴 %ld 回零进度: %d%%, 耗时: %.1f 秒, 当前位置: %.3f, 已完成距离: %.3f/%.3f", 
+                        RCLCPP_INFO(this->get_logger(), "轴 %ld 回零进度: %d%%, 耗时: %.1f 秒", 
                                    axis, progress, elapsed_seconds, current_position, 
                                    fabs(start_position - current_position), total_distance);
                         last_progress = progress;
