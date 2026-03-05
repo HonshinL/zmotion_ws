@@ -209,7 +209,7 @@ void ZmcController::initROS() {
     // 回零参数
     this->declare_parameter<bool>("auto_homing_on_start", true);
     this->declare_parameter<std::vector<int64_t>>("auto_homing_axes", {0});
-    this->declare_parameter<double>("auto_homing_timeout", 60.0);
+    this->declare_parameter<std::vector<double>>("auto_homing_timeout", {60.0, 60.0, 60.0, 60.0, 60.0});
     this->declare_parameter<std::vector<int64_t>>("axis_homing_mode", {11, 11, 11, 11, 11});
     this->declare_parameter<std::vector<double>>("axis_homing_velocity_high", {50.0, 50.0, 50.0, 50.0, 50.0});
     this->declare_parameter<std::vector<double>>("axis_homing_velocity_low", {10.0, 10.0, 10.0, 10.0, 10.0});
@@ -289,7 +289,11 @@ void ZmcController::start() {
             bool auto_homing = this->get_parameter("auto_homing_on_start").as_bool();
             if (auto_homing) {
                 auto homing_axes = this->get_parameter("auto_homing_axes").as_integer_array();
-                double homing_timeout = this->get_parameter("auto_homing_timeout").as_double();
+                auto homing_timeout_array = this->get_parameter("auto_homing_timeout").as_double_array();
+                double homing_timeout = 60.0; // 默认60秒
+                if (!homing_timeout_array.empty()) {
+                    homing_timeout = homing_timeout_array[0]; // 使用第一个值
+                }
                 
                 // 直接使用std::vector<int64_t>
                 std::vector<int64_t> homing_axes_long;
@@ -1300,9 +1304,12 @@ bool ZmcController::homeAxes(const std::vector<int64_t>& axes) {
     // 从参数服务器读取回零超时参数，设置默认值
     double timeout = 30.0; // 默认30秒
     
-    // 直接从参数服务器读取超时参数
+    // 读取超时参数数组
     try {
-        timeout = this->get_parameter("axis_homing_timeout").as_double();
+        auto timeout_array = this->get_parameter("axis_homing_timeout").as_double_array();
+        if (!timeout_array.empty()) {
+            timeout = timeout_array[0]; // 使用第一个值作为默认超时
+        }
     } catch (const rclcpp::exceptions::InvalidParameterTypeException& e) {
         RCLCPP_WARN(this->get_logger(), "无法读取回零超时参数，使用默认值 %.1f 秒", timeout);
     }
@@ -1459,7 +1466,19 @@ bool ZmcController::homeAxes(const std::vector<int64_t>& axes) {
             }
             
             // 检查超时
-            if (elapsed_seconds > timeout) {
+            double axis_timeout = timeout; // 使用默认超时
+            
+            // 尝试从超时参数数组中获取当前轴的超时值
+            try {
+                auto timeout_array = this->get_parameter("axis_homing_timeout").as_double_array();
+                if (!timeout_array.empty() && holding_index >= 0 && static_cast<size_t>(holding_index) < timeout_array.size()) {
+                    axis_timeout = timeout_array[holding_index];
+                }
+            } catch (const rclcpp::exceptions::InvalidParameterTypeException& e) {
+                // 使用默认超时
+            }
+            
+            if (elapsed_seconds > axis_timeout) {
                 RCLCPP_ERROR(this->get_logger(), "轴 %ld 回零超时，耗时: %.1f 秒，当前位置: %.3f", axis, elapsed_seconds, current_position);
                 axis_status[axis].completed = true;
                 axis_status[axis].success = false;
