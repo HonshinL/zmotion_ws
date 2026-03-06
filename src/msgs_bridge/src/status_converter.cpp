@@ -9,17 +9,17 @@ public:
         // 创建发布者，发布到 axis_status 话题
         axis_status_pub_ = this->create_publisher<slms_interface::msg::AxisStatus>("axis_status", 10);
 
-        // 创建订阅者，订阅 motion_status 话题
-        motion_status_sub_ = this->create_subscription<motion_msgs::msg::AxesState>(
-            "zmc_pub/motion_status", 10,
-            std::bind(&StatusConverter::motion_status_callback, this, std::placeholders::_1)
+        // 创建订阅者，订阅 axes_state 话题
+        axes_state_sub_ = this->create_subscription<motion_msgs::msg::AxesState>(
+            "zmc_pub/axes_state", 10,
+            std::bind(&StatusConverter::axes_state_callback, this, std::placeholders::_1)
         );
         
-        RCLCPP_INFO(this->get_logger(), "状态转换节点已启动: motion_status -> axis_status");
+        RCLCPP_INFO(this->get_logger(), "状态转换节点已启动: axes_state -> axis_status");
     }
 
 private:
-    void motion_status_callback(const motion_msgs::msg::AxesState::SharedPtr msg) {
+    void axes_state_callback(const motion_msgs::msg::AxesState::SharedPtr msg) {
         // 创建 AxisStatus 消息
         auto axis_status_msg = slms_interface::msg::AxisStatus();
         
@@ -58,7 +58,7 @@ private:
     }
 
     rclcpp::Publisher<slms_interface::msg::AxisStatus>::SharedPtr axis_status_pub_;
-    rclcpp::Subscription<motion_msgs::msg::AxesState>::SharedPtr motion_status_sub_;
+    rclcpp::Subscription<motion_msgs::msg::AxesState>::SharedPtr axes_state_sub_;
 };
 
 int main(int argc, char * argv[]) {

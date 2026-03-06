@@ -220,7 +220,7 @@ void ZmcController::initROS() {
 
     // 创建发布者 (Publisher)
     // 发布运动状态
-    motion_status_pub_ = this->create_publisher<motion_msgs::msg::AxesState>("zmc_pub/motion_status", 10);
+    axes_state_pub_ = this->create_publisher<motion_msgs::msg::AxesState>("zmc_pub/axes_state", 10);
 
     // 创建DXF到XML转换服务
     convert_dxf_to_xml_service_ = this->create_service<motion_msgs::srv::ConvertDxfToXml>(
@@ -353,10 +353,10 @@ void ZmcController::timer_callback() {
     if (!is_connected_) return;
 
     // 创建AxesState消息
-    auto motion_status_msg = motion_msgs::msg::AxesState();
+    auto axes_state_msg = motion_msgs::msg::AxesState();
     
     // 设置JointState的Header
-    auto& joint_state = motion_status_msg.joint_state;
+    auto& joint_state = axes_state_msg.joint_state;
     joint_state.header.stamp = this->now();
     joint_state.header.frame_id = "zmc_status";
     
@@ -447,7 +447,7 @@ void ZmcController::timer_callback() {
     
     // 发布AxesState消息
     if (!joint_state.name.empty()) {
-        motion_status_pub_->publish(motion_status_msg);
+        axes_state_pub_->publish(axes_state_msg);
         
         if (all_axes_success) {
             RCLCPP_DEBUG(this->get_logger(), "成功发布 %zu 个轴的状态数据到AxesState话题", 
