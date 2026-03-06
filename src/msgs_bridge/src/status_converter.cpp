@@ -37,6 +37,7 @@ private:
                 axis_status_msg.pos.push_back(static_cast<float>(joint_state.position[i]));
             }
             
+            // TODO: 待更新
             // 计算合成速度（所有轴速度的绝对值之和）
             float total_speed = 0.0f;
             if (!joint_state.velocity.empty()) {

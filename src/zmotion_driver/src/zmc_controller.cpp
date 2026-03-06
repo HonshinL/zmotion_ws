@@ -336,7 +336,6 @@ void ZmcController::stop() {
 
 void ZmcController::startPublishing() {
     // 创建定时器 (WallTimer)
-    // 每 20 毫秒执行一次 timer_callback (50Hz)
     if (!timer_) {
         timer_ = this->create_wall_timer(500ms, std::bind(&ZmcController::timer_callback, this));
         RCLCPP_INFO(this->get_logger(), "开始发布控制器数据");
