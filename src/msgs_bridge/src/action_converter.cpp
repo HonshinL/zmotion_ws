@@ -91,9 +91,6 @@ private:
         auto goal_msg = AxesMoving::Goal();
         goal_msg.target_axes = {static_cast<int64_t>(axis_num)};
         goal_msg.target_positions = {static_cast<double>(target_position)};
-        goal_msg.speed = {50.0};
-        goal_msg.acceleration = {100.0};
-        goal_msg.deceleration = {100.0};
         
         auto send_goal_options = rclcpp_action::Client<AxesMoving>::SendGoalOptions();
         send_goal_options.goal_response_callback = 
@@ -129,16 +126,7 @@ private:
             positions_double.push_back(static_cast<double>(pos));
         }
         goal_msg.target_positions = positions_double;
-        
-        // 创建与axes大小相同的速度、加速度和减速度数组
-        size_t num_axes = axes.size();
-        // 设置速度、加速度和减速度数组
-        std::vector<double> speed_array(axes.size(), 50.0);
-        std::vector<double> acceleration_array(axes.size(), 100.0);
-        std::vector<double> deceleration_array(axes.size(), 100.0);
-        goal_msg.speed = speed_array;
-        goal_msg.acceleration = acceleration_array;
-        goal_msg.deceleration = deceleration_array;
+        // 速度、加速度和减速度从参数服务器读取，不在action消息中传递
         
         auto send_goal_options = rclcpp_action::Client<AxesMoving>::SendGoalOptions();
         send_goal_options.goal_response_callback = 
@@ -160,7 +148,7 @@ private:
         }
         
         auto goal_msg = AxesHoming::Goal();
-        goal_msg.axes = {static_cast<int64_t>(axis_num)};
+        goal_msg.homing_axes = {static_cast<int64_t>(axis_num)};
         // 其他参数从参数服务器读取，不在action消息中传递
         
         auto send_goal_options = rclcpp_action::Client<AxesHoming>::SendGoalOptions();
@@ -220,7 +208,7 @@ private:
         GoalHandleHome::SharedPtr,
         const std::shared_ptr<const AxesHoming::Feedback> feedback) {
         RCLCPP_INFO(this->get_logger(), "回零进度: %s, 耗时: %.1f 秒", 
-                   feedback->current_state.c_str(), feedback->elapsed_time);
+                   feedback->current_phase.c_str(), feedback->elapsed_time);
     }
     
     void homing_result_callback(const GoalHandleHome::WrappedResult & result) {

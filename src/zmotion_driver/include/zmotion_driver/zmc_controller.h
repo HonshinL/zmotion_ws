@@ -9,7 +9,7 @@
 #include "std_msgs/msg/header.hpp"
 #include "std_msgs/msg/string.hpp"
 #include "sensor_msgs/msg/joint_state.hpp"
-#include "motion_msgs/msg/motion_status.hpp"
+#include "motion_msgs/msg/axes_state.hpp"
 #include "motion_msgs/msg/object_position.hpp"
 #include "motion_msgs/srv/convert_dxf_to_xml.hpp"
 #include "motion_msgs/action/axes_moving.hpp"
@@ -392,7 +392,7 @@ private:
     // ROS2相关成员
     std::vector<int64_t> running_axes_ = {};  ///< 实际可控轴列表
     rclcpp::TimerBase::SharedPtr timer_;  ///< 定时器
-    rclcpp::Publisher<motion_msgs::msg::MotionStatus>::SharedPtr motion_status_pub_;  ///< 运动状态发布者
+    rclcpp::Publisher<motion_msgs::msg::AxesState>::SharedPtr motion_status_pub_;  ///< 运动状态发布者
     rclcpp::Subscription<motion_msgs::msg::ObjectPosition>::SharedPtr object_position_sub_;  ///< 目标位置订阅者
     rclcpp::Service<motion_msgs::srv::ConvertDxfToXml>::SharedPtr convert_dxf_to_xml_service_;  ///< DXF到XML转换服务
     rclcpp::Publisher<std_msgs::msg::String>::SharedPtr convert_status_pub_;  // Action服务器

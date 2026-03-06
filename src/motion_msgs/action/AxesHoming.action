@@ -1,16 +1,13 @@
 # 目标位置（Goal）
-int64[] axes              # 要回零的轴列表
-
+int64[] homing_axes              # 要回零的轴列表
 ---
 # 结果（Result）
 bool success              # 是否成功到达原点
 string message            # 状态描述（如 "Success", "Timeout", "Limit Triggered"）
 float64[] final_positions # 各轴的最终位置（应接近0）
-int64[] error_codes       # 各轴的错误代码（0表示成功）
-
+float64 duration          # 动作持续时间（秒）
 ---
 # 反馈（Feedback）
-string current_state      # 当前阶段（"SEARCHING", "LATCHING_Z", "OFFSETTING", "COMPLETED", "FAILED"）
+string current_phase      # 当前阶段（"SEARCHING", "LATCHING_Z", "OFFSETTING", "COMPLETED", "FAILED"）
 float64[] current_positions # 各轴的实时坐标
-int64[] drive_statuses    # 各轴的驱动器状态字（Statusword）
 float64 elapsed_time      # 已执行时间（秒）

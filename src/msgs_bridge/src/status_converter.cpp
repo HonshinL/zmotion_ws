@@ -1,5 +1,5 @@
 #include "rclcpp/rclcpp.hpp"
-#include "motion_msgs/msg/motion_status.hpp"
+#include "motion_msgs/msg/axes_state.hpp"
 #include "slms_interface/msg/axis_status.hpp"
 #include "sensor_msgs/msg/joint_state.hpp"
 
@@ -10,7 +10,7 @@ public:
         axis_status_pub_ = this->create_publisher<slms_interface::msg::AxisStatus>("axis_status", 10);
 
         // 创建订阅者，订阅 motion_status 话题
-        motion_status_sub_ = this->create_subscription<motion_msgs::msg::MotionStatus>(
+        motion_status_sub_ = this->create_subscription<motion_msgs::msg::AxesState>(
             "zmc_pub/motion_status", 10,
             std::bind(&StatusConverter::motion_status_callback, this, std::placeholders::_1)
         );
@@ -19,11 +19,11 @@ public:
     }
 
 private:
-    void motion_status_callback(const motion_msgs::msg::MotionStatus::SharedPtr msg) {
+    void motion_status_callback(const motion_msgs::msg::AxesState::SharedPtr msg) {
         // 创建 AxisStatus 消息
         auto axis_status_msg = slms_interface::msg::AxisStatus();
         
-        // 转换逻辑：从 MotionStatus 的 JointState 提取数据到 AxisStatus
+        // 转换逻辑：从 AxesState 的 JointState 提取数据到 AxisStatus
         const auto& joint_state = msg->joint_state;
         
         // 提取轴状态和位置信息
@@ -49,7 +49,7 @@ private:
             RCLCPP_DEBUG(this->get_logger(), "转换成功: %zu 个轴, 合成速度: %.3f", 
                         axis_status_msg.status.size(), axis_status_msg.speed);
         } else {
-            RCLCPP_WARN(this->get_logger(), "MotionStatus消息中缺少轴数据");
+            RCLCPP_WARN(this->get_logger(), "AxesState消息中缺少轴数据");
         }
 
         // 发布转换后的 AxisStatus 消息
@@ -57,7 +57,7 @@ private:
     }
 
     rclcpp::Publisher<slms_interface::msg::AxisStatus>::SharedPtr axis_status_pub_;
-    rclcpp::Subscription<motion_msgs::msg::MotionStatus>::SharedPtr motion_status_sub_;
+    rclcpp::Subscription<motion_msgs::msg::AxesState>::SharedPtr motion_status_sub_;
 };
 
 int main(int argc, char * argv[]) {

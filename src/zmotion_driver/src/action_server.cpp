@@ -70,20 +70,21 @@ private:
         auto result = std::make_shared<MoveToPosition::Result>();
 
         // 记录初始位置计算进度
-        std::vector<float> start_positions = get_mpos(goal->target_axes);
+    std::vector<float> start_positions = get_mpos(goal->target_axes);
+    auto start_time = std::chrono::steady_clock::now();
 
-        // 1. 设置运动参数并启动
-        for (size_t i = 0; i < goal->target_axes.size(); ++i) {
-            int axis = goal->target_axes[i];
-            ZAux_Direct_SetSpeed(handle_, axis, goal->speed);
-            ZAux_Direct_SetAccel(handle_, axis, goal->acceleration);
-            ZAux_Direct_SetDecel(handle_, axis, goal->deceleration);
-            // ZAux_Direct_Single_MoveAbs(handle_, axis, goal->target_positions[i]);
-            ZAux_Direct_Single_Move(handle_, axis, goal->target_positions[i]);
-        }
+    // 1. 设置运动参数并启动
+    for (size_t i = 0; i < goal->target_axes.size(); ++i) {
+        int axis = goal->target_axes[i];
+        ZAux_Direct_SetSpeed(handle_, axis, goal->speed);
+        ZAux_Direct_SetAccel(handle_, axis, goal->acceleration);
+        ZAux_Direct_SetDecel(handle_, axis, goal->deceleration);
+        // ZAux_Direct_Single_MoveAbs(handle_, axis, goal->target_positions[i]);
+        ZAux_Direct_Single_Move(handle_, axis, goal->target_positions[i]);
+    }
 
-        // 2. 监控循环
-        rclcpp::Rate loop_rate(10); // 10Hz
+    // 2. 监控循环
+    rclcpp::Rate loop_rate(10); // 10Hz
         while (rclcpp::ok()) {
             // 检查是否有取消请求
             if (goal_handle->is_canceling()) {
@@ -125,10 +126,12 @@ private:
         if (rclcpp::ok()) {
             result->success = true;
             result->final_positions = get_mpos(goal->target_axes);
-            result->end_time = this->now();
+            auto end_time = std::chrono::steady_clock::now();
+            auto duration = std::chrono::duration_cast<std::chrono::duration<double>>(end_time - start_time).count();
+            result->duration = duration;
             result->message = "成功到达目标位置";
             goal_handle->succeed(result);
-            RCLCPP_INFO(this->get_logger(), "运动完成");
+            RCLCPP_INFO(this->get_logger(), "运动完成，耗时: %.2f秒", duration);
         }
     }
 
