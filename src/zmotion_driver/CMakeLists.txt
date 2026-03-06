@@ -138,4 +138,9 @@ install(DIRECTORY include/${PROJECT_NAME}/
   PATTERN "readme.txt" EXCLUDE
 )
 
+# 安装launch文件
+install(DIRECTORY launch
+  DESTINATION share/${PROJECT_NAME}
+)
+
 ament_package()
