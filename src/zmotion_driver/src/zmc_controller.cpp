@@ -666,16 +666,11 @@ void ZmcController::executeAxesMoving(
         setAxisMoveParameters();
         
         // 启动运动
-        for (size_t i = 0; i < goal->target_axes.size(); ++i) {
-            int64_t axis = goal->target_axes[i];
-            double target_position = goal->target_positions[i];
-            
-            if (!checkError(ZAux_Direct_Single_MoveAbs(handle_, static_cast<int>(axis), target_position))) {
-                throw std::runtime_error("设置轴 " + std::to_string(axis) + " 目标位置失败");
-            }
-            
-            RCLCPP_INFO(this->get_logger(), "轴 %ld 开始移动到位置 %.3f", axis, target_position);
+        if (!moveAxes(goal->target_axes, goal->target_positions)) {
+            throw std::runtime_error("执行运动失败");
         }
+        
+        RCLCPP_INFO(this->get_logger(), "运动已启动");
         
         // 记录起始位置
         std::vector<double> start_positions;
@@ -811,23 +806,50 @@ bool ZmcController::moveAxes(const std::vector<int64_t>& axes, const std::vector
         return false;
     }
     
-    RCLCPP_INFO(this->get_logger(), "开始执行多轴运动");
-    
     // 为所有运行轴设置默认运动参数
     setAxisMoveParameters();
     
-    // 启动所有轴的运动
-    for (size_t i = 0; i < axes.size(); ++i) {
-        int64_t axis = axes[i];
-        double target_position = positions[i];
+    size_t axis_count = axes.size();
+    
+    if (axis_count == 1) {
+        // 单轴运动
+        int64_t axis = axes[0];
+        double target_position = positions[0];
         
-        // 启动运动
+        RCLCPP_INFO(this->get_logger(), "执行单轴运动: 轴 %ld 移动到 %.3f", axis, target_position);
+        
         if (!checkError(ZAux_Direct_Single_MoveAbs(handle_, static_cast<int>(axis), target_position))) {
             RCLCPP_ERROR(this->get_logger(), "设置轴 %ld 目标位置失败", axis);
             return false;
         }
+    } else if (axis_count == 2 || axis_count == 3) {
+        // 合成运动
+        RCLCPP_INFO(this->get_logger(), "执行合成运动: 轴列表 %s", vectorToString(axes).c_str());
         
-        RCLCPP_INFO(this->get_logger(), "轴 %ld 开始移动到位置 %.3f", axis, target_position);
+        // 创建转换后的数组
+        std::vector<int> axis_vec(axis_count);
+        std::vector<float> position_vec(axis_count);
+        
+        // 转换数据类型
+        for (size_t i = 0; i < axis_count; ++i) {
+            axis_vec[i] = static_cast<int>(axes[i]);
+            position_vec[i] = static_cast<float>(positions[i]);
+        }
+        
+        // 设置基轴列表
+        if (!checkError(ZAux_Direct_Base(handle_, static_cast<int>(axis_count), axis_vec.data()))) {
+            RCLCPP_ERROR(this->get_logger(), "设置基轴列表失败");
+            return false;
+        }
+        
+        // 执行合成运动
+        if (!checkError(ZAux_Direct_MoveAbs(handle_, static_cast<int>(axis_count), axis_vec.data(), position_vec.data()))) {
+            RCLCPP_ERROR(this->get_logger(), "执行合成运动失败");
+            return false;
+        }
+    } else {
+        RCLCPP_ERROR(this->get_logger(), "不支持的轴数量: %zu，只支持1-3个轴", axis_count);
+        return false;
     }
     
     // 启动监控线程
@@ -1514,6 +1536,14 @@ void ZmcController::initializeAxisParameters() {
         } else {
             RCLCPP_WARN(this->get_logger(), "轴 %ld 的holding_axes索引 %ld 超出脉冲当量参数数组范围", axis, holding_index);
         }
+    }
+    
+    // 叠加轴2到轴1
+    RCLCPP_INFO(this->get_logger(), "叠加轴2到轴1");
+    if (checkError(ZAux_Direct_Single_Addax(handle_, 1, 2))) {
+        RCLCPP_INFO(this->get_logger(), "轴2叠加到轴1设置成功");
+    } else {
+        RCLCPP_ERROR(this->get_logger(), "轴2叠加到轴1设置失败");
     }
     
     RCLCPP_INFO(this->get_logger(), "轴参数初始化完成");
