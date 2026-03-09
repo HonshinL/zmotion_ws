@@ -57,9 +57,6 @@ ros2 action send_goal /zmc_act/axes_moving motion_msgs/action/AxesMoving "
 {
   target_axes: [0],
   target_positions: [100.0],
-  speed: [20.0],
-  acceleration: [40.0],
-  deceleration: [40.0],
 }" --feedback
 
 ros2 action send_goal /zmc_act/axes_homing motion_msgs/action/AxesHoming '{
@@ -69,4 +66,8 @@ ros2 action send_goal /zmc_act/axes_homing motion_msgs/action/AxesHoming '{
   "velocity_creep": [10.0],
   "homing_modes": [11],
   "homing_timeout": [60.0]
+}' --feedback
+
+ros2 action send_goal /zmc_act/axes_homing motion_msgs/action/AxesHoming '{
+  "homing_axes": [0],
 }' --feedback

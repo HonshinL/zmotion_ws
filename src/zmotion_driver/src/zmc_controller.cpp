@@ -330,6 +330,8 @@ void ZmcController::start() {
 }
 
 void ZmcController::stop() {
+
+    moveAxes({0, 2}, {240.0, 0.0});
     stopPublishing();
     disconnect();
 }
