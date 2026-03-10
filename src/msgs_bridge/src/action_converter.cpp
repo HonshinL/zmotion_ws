@@ -83,13 +83,25 @@ private:
     
     // 发送单轴运动 Action
     void send_move_action(int32_t axis_num, double target_position) {
+        // 检查轴号是否有效
+        int32_t actual_axis = axis_num;
+        if (axis_num == 1) {
+            // 如果轴号是1，则驱动轴2
+            actual_axis = 2;
+            RCLCPP_INFO(this->get_logger(), "轴号1被映射到轴2");
+        } else if (axis_num != 0 && axis_num != 2 && axis_num != 4 && axis_num != 5) {
+            // 只接受0, 2, 4, 5中的轴号
+            RCLCPP_ERROR(this->get_logger(), "无效的轴号: %d，只支持0, 2, 4, 5", axis_num);
+            return;
+        }
+        
         if (!action_client_->wait_for_action_server(std::chrono::seconds(5))) {
             RCLCPP_ERROR(this->get_logger(), "Action 服务器不可用");
             return;
         }
         
         auto goal_msg = AxesMoving::Goal();
-        goal_msg.target_axes = {static_cast<int64_t>(axis_num)};
+        goal_msg.target_axes = {static_cast<int64_t>(actual_axis)};
         goal_msg.target_positions = {static_cast<double>(target_position)};
         
         auto send_goal_options = rclcpp_action::Client<AxesMoving>::SendGoalOptions();
@@ -100,12 +112,30 @@ private:
         send_goal_options.result_callback = 
             std::bind(&ObjectPositionToActionConverter::move_result_callback, this, std::placeholders::_1);
         
-        RCLCPP_INFO(this->get_logger(), "发送单轴运动 Action: 轴%d -> %.3f", axis_num, target_position);
+        RCLCPP_INFO(this->get_logger(), "发送单轴运动 Action: 轴%d -> %.3f", actual_axis, target_position);
         action_client_->async_send_goal(goal_msg, send_goal_options);
     }
     
     // 发送多轴运动 Action
     void send_multi_axis_action(const std::vector<int32_t>& axes, const std::vector<double>& positions) {
+        // 检查轴号是否有效
+        std::vector<int32_t> actual_axes;
+        actual_axes.reserve(axes.size());
+        
+        for (int32_t axis_num : axes) {
+            if (axis_num == 1) {
+                // 如果轴号是1，则驱动轴2
+                actual_axes.push_back(2);
+                RCLCPP_INFO(this->get_logger(), "轴号1被映射到轴2");
+            } else if (axis_num != 0 && axis_num != 2 && axis_num != 4 && axis_num != 5) {
+                // 只接受0, 2, 4, 5中的轴号
+                RCLCPP_ERROR(this->get_logger(), "无效的轴号: %d，只支持0, 2, 4, 5", axis_num);
+                return;
+            } else {
+                actual_axes.push_back(axis_num);
+            }
+        }
+        
         if (!action_client_->wait_for_action_server(std::chrono::seconds(5))) {
             RCLCPP_ERROR(this->get_logger(), "Action 服务器不可用");
             return;
@@ -114,8 +144,8 @@ private:
         auto goal_msg = AxesMoving::Goal();
         // 将std::vector<int>转换为std::vector<int64_t>
         std::vector<int64_t> target_axes_long;
-        target_axes_long.reserve(axes.size());
-        for (int axis : axes) {
+        target_axes_long.reserve(actual_axes.size());
+        for (int axis : actual_axes) {
             target_axes_long.push_back(static_cast<int64_t>(axis));
         }
         goal_msg.target_axes = target_axes_long;
@@ -136,7 +166,21 @@ private:
         send_goal_options.result_callback = 
             std::bind(&ObjectPositionToActionConverter::move_result_callback, this, std::placeholders::_1);
         
-        RCLCPP_INFO(this->get_logger(), "发送多轴运动 Action: %zu 个轴", axes.size());
+        // 构建轴号和位置的字符串
+        std::string axes_str = "[";
+        std::string positions_str = "[";
+        for (size_t i = 0; i < actual_axes.size(); ++i) {
+            axes_str += std::to_string(actual_axes[i]);
+            positions_str += std::to_string(positions[i]);
+            if (i < actual_axes.size() - 1) {
+                axes_str += ", ";
+                positions_str += ", ";
+            }
+        }
+        axes_str += "]";
+        positions_str += "]";
+        
+        RCLCPP_INFO(this->get_logger(), "发送多轴运动 Action: 轴%s -> %s", axes_str.c_str(), positions_str.c_str());
         action_client_->async_send_goal(goal_msg, send_goal_options);
     }
     
