@@ -50,6 +50,11 @@ private:
         // 根据模式处理不同的运动类型
         switch (msg->mode) {
             case 0: // 单轴回零
+                // 检查axis_num是否为0
+                if (msg->axis_num != 0) {
+                    RCLCPP_ERROR(this->get_logger(), "模式0（回零操作）只支持轴号0，收到的轴号: %d", msg->axis_num);
+                    return;
+                }
                 RCLCPP_INFO(this->get_logger(), "模式0: 单轴回零，轴号: %d", msg->axis_num);
                 send_homing_action(msg->axis_num);
                 break;

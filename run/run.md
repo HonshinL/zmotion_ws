@@ -55,8 +55,8 @@ ros2 run zmotion_driver zmotion_node
 
 ros2 action send_goal /zmc_act/axes_moving motion_msgs/action/AxesMoving "
 {
-  target_axes: [0],
-  target_positions: [100.0],
+  target_axes: [0, 2],
+  target_positions: [10.0, 10.0],
 }" --feedback
 
 ros2 action send_goal /zmc_act/axes_homing motion_msgs/action/AxesHoming '{
