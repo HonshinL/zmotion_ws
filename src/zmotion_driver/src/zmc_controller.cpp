@@ -293,15 +293,8 @@ void ZmcController::start() {
                     homing_timeout = homing_timeout_array[0]; // 使用第一个值
                 }
                 
-                // 直接使用std::vector<int64_t>
-                std::vector<int64_t> homing_axes_long;
-                homing_axes_long.reserve(homing_axes.size());
-                for (int64_t axis : homing_axes) {
-                    homing_axes_long.push_back(axis);
-                }
-                
                 RCLCPP_INFO(this->get_logger(), "开始启动时自动回零");
-                if (homeAxes(homing_axes_long)) {
+                if (homeAxes(homing_axes)) {
                     RCLCPP_INFO(this->get_logger(), "所有轴回零成功");
                 } else {
                     RCLCPP_ERROR(this->get_logger(), "部分轴回零失败");
