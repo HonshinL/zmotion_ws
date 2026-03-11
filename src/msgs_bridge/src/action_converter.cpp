@@ -56,9 +56,7 @@ private:
                 
             case 1: // 单轴运动
                 if (msg->pos.size() >= 1) {
-                    RCLCPP_INFO(this->get_logger(), "模式1: 单轴运动，轴号: %d, 目标位置: %.3f", 
-                               msg->axis_num, msg->pos[0]);
-                    send_move_action(msg->axis_num, msg->pos[0]);
+                    send_single_axis_action(msg->axis_num, msg->pos);
                 }
                 break;
                 
@@ -82,18 +80,47 @@ private:
     }
     
     // 发送单轴运动 Action
-    void send_move_action(int32_t axis_num, double target_position) {
+    void send_single_axis_action(int32_t axis_num, const std::vector<float>& positions) {
         // 检查轴号是否有效
         int32_t actual_axis = axis_num;
-        if (axis_num == 1) {
+        float target_position = 0.0;
+        
+        if (axis_num == 0) {
+            // 如果轴号是0，取位置数组的第一个值
+            if (positions.empty()) {
+                RCLCPP_ERROR(this->get_logger(), "位置数组为空");
+                return;
+            }
+            target_position = positions[0];
+        } else if (axis_num == 1) {
             // 如果轴号是1，则驱动轴2
             actual_axis = 2;
             RCLCPP_INFO(this->get_logger(), "轴号1被映射到轴2");
-        } else if (axis_num != 0 && axis_num != 2 && axis_num != 4 && axis_num != 5) {
+            // 位置数组如果只有一个值，则取该值，如果有2个值，则取第二个值
+            if (positions.empty()) {
+                RCLCPP_ERROR(this->get_logger(), "位置数组为空");
+                return;
+            } else if (positions.size() >= 2) {
+                target_position = positions[1];
+            } else {
+                target_position = positions[0];
+            }
+        } else if (axis_num != 2 && axis_num != 4 && axis_num != 5) {
             // 只接受0, 2, 4, 5中的轴号
             RCLCPP_ERROR(this->get_logger(), "无效的轴号: %d，只支持0, 2, 4, 5", axis_num);
             return;
+        } else {
+            // 其他有效轴号，取位置数组的第一个值
+            if (positions.empty()) {
+                RCLCPP_ERROR(this->get_logger(), "位置数组为空");
+                return;
+            }
+            target_position = positions[0];
         }
+        
+        // 记录单轴运动信息
+        RCLCPP_INFO(this->get_logger(), "模式1: 单轴运动，轴号: %d, 目标位置: %.3f", 
+                    actual_axis, target_position);
         
         if (!action_client_->wait_for_action_server(std::chrono::seconds(5))) {
             RCLCPP_ERROR(this->get_logger(), "Action 服务器不可用");
