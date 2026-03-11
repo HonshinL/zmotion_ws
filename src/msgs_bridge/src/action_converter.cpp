@@ -86,25 +86,22 @@ private:
         float target_position = 0.0;
         
         if (axis_num == 0) {
-            // 如果轴号是0，取位置数组的第一个值
+            // 如果轴号是0，使用pos的第一个数据
             if (positions.empty()) {
                 RCLCPP_ERROR(this->get_logger(), "位置数组为空");
                 return;
             }
             target_position = positions[0];
         } else if (axis_num == 1) {
-            // 如果轴号是1，则驱动轴2
+            // 如果轴号是1，则控制轴2移动到倒数第一个数据
             actual_axis = 2;
             RCLCPP_INFO(this->get_logger(), "轴号1被映射到轴2");
-            // 位置数组如果只有一个值，则取该值，如果有2个值，则取第二个值
             if (positions.empty()) {
                 RCLCPP_ERROR(this->get_logger(), "位置数组为空");
                 return;
-            } else if (positions.size() >= 2) {
-                target_position = positions[1];
-            } else {
-                target_position = positions[0];
             }
+            // 取倒数第一个数据
+            target_position = positions.back();
         } else if (axis_num != 2 && axis_num != 4 && axis_num != 5) {
             // 只接受0, 2, 4, 5中的轴号
             RCLCPP_ERROR(this->get_logger(), "无效的轴号: %d，只支持0, 2, 4, 5", axis_num);
@@ -147,19 +144,42 @@ private:
     void send_multi_axis_action(const std::vector<int32_t>& axes, const std::vector<double>& positions) {
         // 检查轴号是否有效
         std::vector<int32_t> actual_axes;
+        std::vector<double> actual_positions;
         actual_axes.reserve(axes.size());
+        actual_positions.reserve(axes.size());
         
-        for (int32_t axis_num : axes) {
-            if (axis_num == 1) {
-                // 如果轴号是1，则驱动轴2
+        for (size_t i = 0; i < axes.size(); ++i) {
+            int32_t axis_num = axes[i];
+            if (axis_num == 0) {
+                // 如果轴号是0，使用pos的第一个数据
+                if (positions.empty()) {
+                    RCLCPP_ERROR(this->get_logger(), "位置数组为空");
+                    return;
+                }
+                actual_axes.push_back(axis_num);
+                actual_positions.push_back(positions[0]);
+            } else if (axis_num == 1) {
+                // 如果轴号是1，则控制轴2移动到倒数第一个数据
                 actual_axes.push_back(2);
                 RCLCPP_INFO(this->get_logger(), "轴号1被映射到轴2");
-            } else if (axis_num != 0 && axis_num != 2 && axis_num != 4 && axis_num != 5) {
+                if (positions.empty()) {
+                    RCLCPP_ERROR(this->get_logger(), "位置数组为空");
+                    return;
+                }
+                // 取倒数第一个数据
+                actual_positions.push_back(positions.back());
+            } else if (axis_num != 2 && axis_num != 4 && axis_num != 5) {
                 // 只接受0, 2, 4, 5中的轴号
                 RCLCPP_ERROR(this->get_logger(), "无效的轴号: %d，只支持0, 2, 4, 5", axis_num);
                 return;
             } else {
+                // 其他有效轴号，取对应位置的数据
+                if (i >= positions.size()) {
+                    RCLCPP_ERROR(this->get_logger(), "位置数组长度不足");
+                    return;
+                }
                 actual_axes.push_back(axis_num);
+                actual_positions.push_back(positions[i]);
             }
         }
         
@@ -176,13 +196,8 @@ private:
             target_axes_long.push_back(static_cast<int64_t>(axis));
         }
         goal_msg.target_axes = target_axes_long;
-        // 将std::vector<float>转换为std::vector<double>
-        std::vector<double> positions_double;
-        positions_double.reserve(positions.size());
-        for (float pos : positions) {
-            positions_double.push_back(static_cast<double>(pos));
-        }
-        goal_msg.target_positions = positions_double;
+        // 使用处理后的位置数据
+        goal_msg.target_positions = actual_positions;
         // 速度、加速度和减速度从参数服务器读取，不在action消息中传递
         
         auto send_goal_options = rclcpp_action::Client<AxesMoving>::SendGoalOptions();
@@ -198,7 +213,7 @@ private:
         std::string positions_str = "[";
         for (size_t i = 0; i < actual_axes.size(); ++i) {
             axes_str += std::to_string(actual_axes[i]);
-            positions_str += std::to_string(positions[i]);
+            positions_str += std::to_string(actual_positions[i]);
             if (i < actual_axes.size() - 1) {
                 axes_str += ", ";
                 positions_str += ", ";

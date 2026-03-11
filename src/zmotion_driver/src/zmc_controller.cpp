@@ -191,7 +191,7 @@ bool ZmcController::setAxisEnable(int axis, int enabled) {
 void ZmcController::initROS() {
     // 声明参数，默认值将被配置文件覆盖
     this->declare_parameter<std::string>("controller_ip", "192.168.0.11");
-    this->declare_parameter<std::vector<int64_t>>("running_axes", {0});
+    this->declare_parameter<std::vector<int64_t>>("running_axes", {0, 2});
     this->declare_parameter<int64_t>("search_timeout_ms", 10000);
     
     // 控制器连接搜索超时时间(毫秒)，用于在网络断开后重新搜索连接
