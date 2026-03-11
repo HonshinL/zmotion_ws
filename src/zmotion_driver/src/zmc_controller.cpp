@@ -1265,7 +1265,12 @@ bool ZmcController::homeAxes(const std::vector<int64_t>& axes) {
         return false;
     }
     
+    // 检查axes列表不能包含1, 2, 3轴
     for (int64_t axis : axes) {
+        if (axis == 1 || axis == 2 || axis == 3) {
+            RCLCPP_ERROR(this->get_logger(), "回零轴列表不能包含轴 %ld，只支持0, 4, 5轴", axis);
+            return false;
+        }
         if (axis < 0 || axis > 5) {
             RCLCPP_ERROR(this->get_logger(), "轴号 %ld 无效", axis);
             return false;
