@@ -204,6 +204,10 @@ void ZmcController::initROS() {
     this->declare_parameter<std::vector<double>>("axis_moving_acceleration", {150.0, 150.0, 150.0, 150.0, 150.0});
     this->declare_parameter<std::vector<double>>("axis_moving_deceleration", {150.0, 150.0, 150.0, 150.0, 150.0});
     
+    // 软限位参数
+    this->declare_parameter<std::vector<double>>("axis_soft_limit_forward", {480.0, 0.0, 0.0, 0.0, 0.0}); // 正向软限位
+    this->declare_parameter<std::vector<double>>("axis_soft_limit_reverse", {0.0, 0.0, 0.0, 0.0, 0.0}); // 反向软限位
+    
     // 回零参数
     this->declare_parameter<bool>("auto_homing_on_start", true);
     this->declare_parameter<std::vector<int64_t>>("auto_homing_axes", {0});
@@ -1509,10 +1513,12 @@ void ZmcController::initializeAxisParameters() {
 
     // 读取轴参数
     auto pulse_equivalent = this->get_parameter("axis_moving_pulse_equivalent").as_double_array();
+    auto soft_limit_forward = this->get_parameter("axis_soft_limit_forward").as_double_array();
+    auto soft_limit_reverse = this->get_parameter("axis_soft_limit_reverse").as_double_array();
     
     RCLCPP_INFO(this->get_logger(), "开始初始化轴参数");
     
-    // 设置轴参数（脉冲当量）
+    // 设置轴参数（脉冲当量和软限位）
     for (size_t i = 0; i < running_axes_.size(); ++i) {
         int64_t axis = running_axes_[i];
         
@@ -1535,6 +1541,20 @@ void ZmcController::initializeAxisParameters() {
             }
         } else {
             RCLCPP_WARN(this->get_logger(), "轴 %ld 的holding_axes索引 %ld 超出脉冲当量参数数组范围", axis, holding_index);
+        }
+        
+        // 设置软限位
+        if (hold_idx < soft_limit_forward.size() && hold_idx < soft_limit_reverse.size()) {
+            // 设置正向软限位
+            if (checkError(ZAux_Direct_SetFsLimit(handle_, axis, soft_limit_forward[hold_idx]))) {
+                RCLCPP_INFO(this->get_logger(), "轴 %ld: 正向软限位设置为 %.3f", axis, soft_limit_forward[hold_idx]);
+            }
+            // 设置反向软限位
+            if (checkError(ZAux_Direct_SetRsLimit(handle_, axis, soft_limit_reverse[hold_idx]))) {
+                RCLCPP_INFO(this->get_logger(), "轴 %ld: 反向软限位设置为 %.3f", axis, soft_limit_reverse[hold_idx]);
+            }
+        } else {
+            RCLCPP_WARN(this->get_logger(), "轴 %ld 的holding_axes索引 %ld 超出软限位参数数组范围", axis, holding_index);
         }
     }
     
