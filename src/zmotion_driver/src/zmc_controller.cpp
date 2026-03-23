@@ -127,9 +127,13 @@ void ZmcController::executeMovePath(
         // 从参数服务器读取运动参数并设置
         setAxisMoveParameters();
         
-        // 设置拐角模式
-        if (checkError(ZAux_Direct_SetCornerMode(handle_, static_cast<int>(goal->corner_mode), goal->corner_value))) {
-            RCLCPP_INFO(this->get_logger(), "设置拐角模式: %d, 值: %.3f", static_cast<int>(goal->corner_mode), goal->corner_value);
+        // 1. 初始化
+        int base_axis = 0; // 假设使用轴0作为基轴
+        int num_axes = 2; // 假设使用2个轴（X和Y）
+        int axes[] = {0, 2}; // 轴0和轴2
+        
+        if (checkError(ZAux_Direct_SetMerge(handle_, base_axis, 1))) {
+            RCLCPP_INFO(this->get_logger(), "开启Merge模式成功");
         }
         
         // 执行路径运动
@@ -137,6 +141,8 @@ void ZmcController::executeMovePath(
         for (size_t i = goal->start_segment_id; i < goal->segments.size(); ++i) {
             // 检查是否被取消
             if (goal_handle->is_canceling()) {
+                // 执行急停
+                ZAux_Direct_Rapidstop(handle_, 2);
                 result->success = false;
                 result->last_completed_id = last_completed_id;
                 result->error_msg = "Action被用户取消";
@@ -151,25 +157,65 @@ void ZmcController::executeMovePath(
                 throw std::runtime_error("控制器连接断开");
             }
             
+            // 2. 缓冲区监控
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+            
             // 获取当前路径段
-            const auto& segment = goal->segments[i];
+            const auto& seg = goal->segments[i];
             
-            // 构建轴列表和位置列表
-            std::vector<int64_t> axes;
-            std::vector<double> positions;
+            // 3. 根据类型压入指令
+            float pos[] = {static_cast<float>(seg.target_pos.x), static_cast<float>(seg.target_pos.y)};
             
-            // 假设路径段包含X、Y轴的位置
-            axes.push_back(0); // X轴
-            axes.push_back(2); // Y轴
-            positions.push_back(segment.target_pos.x);
-            positions.push_back(segment.target_pos.y);
-            
-            // 执行运动
-            if (!moveAxes(axes, positions)) {
-                throw std::runtime_error("执行路径段运动失败");
+            switch (seg.type) {
+                case 0: { // TYPE_LINE
+                    if (!checkError(ZAux_Direct_MoveAbs(handle_, num_axes, axes, pos))) {
+                        throw std::runtime_error("执行直线运动失败");
+                    }
+                    break;
+                }
+                case 1: { // TYPE_ARC
+                    float center[] = {static_cast<float>(seg.center_pos.x), static_cast<float>(seg.center_pos.y)};
+
+                    if (!checkError(ZAux_Direct_MoveAbs(handle_, num_axes, axes, pos))) {
+                        throw std::runtime_error("执行圆弧运动失败");
+                    }
+                    break;
+                }
+                case 2: { // TYPE_ELLIPSE
+                    float ellipse_center[] = {static_cast<float>(seg.center_pos.x), static_cast<float>(seg.center_pos.y)};
+
+                    if (!checkError(ZAux_Direct_MoveAbs(handle_, num_axes, axes, pos))) {
+                        throw std::runtime_error("执行椭圆运动失败");
+                    }
+                    break;
+                }
+                case 3: { // TYPE_SPIRAL
+                    float spiral_center[] = {static_cast<float>(seg.center_pos.x), static_cast<float>(seg.center_pos.y)};
+
+                    if (!checkError(ZAux_Direct_MoveAbs(handle_, num_axes, axes, pos))) {
+                        throw std::runtime_error("执行螺旋运动失败");
+                    }
+                    break;
+                }
+                case 4: { // TYPE_SPLINE
+                    if (!checkError(ZAux_Direct_MoveAbs(handle_, num_axes, axes, pos))) {
+                        throw std::runtime_error("执行样条曲线运动失败");
+                    }
+                    break;
+                }
+                default:
+                    throw std::runtime_error("未知的运动类型");
             }
             
-            // 更新当前段ID
+            // 4. 关键：紧跟运动指令后压入 IO 操作 (开关激光)
+            // 假设激光IO端口为1
+            // const int LASER_IO = 1;
+            // if (!checkError(ZAux_Direct_MoveOp(handle_, LASER_IO, goal->laser_power > 0 ? 1 : 0))) {
+            //     RCLCPP_WARN(this->get_logger(), "设置激光状态失败");
+            // }
+            
+            // 5. 发布 Feedback
+            feedback->is_running = true;
             feedback->current_segment_id = static_cast<uint32_t>(i);
             feedback->progress = static_cast<double>(i + 1) / goal->segments.size();
             
@@ -180,18 +226,21 @@ void ZmcController::executeMovePath(
             feedback->current_pos.x = x_pos;
             feedback->current_pos.y = y_pos;
             
-            // 获取硬件剩余缓存空间
-            int32 space = 0;
-            // 如果需要获取实际缓存空间，请使用正确的API函数
-            feedback->buffer_remaining = 0; // 暂时设为0
+            // 获取当前速度
+            float x_vel = 0.0, y_vel = 0.0;
+            ZAux_Direct_GetSpeed(handle_, 0, &x_vel);
+            ZAux_Direct_GetSpeed(handle_, 2, &y_vel);
+            feedback->current_velocity = std::sqrt(x_vel * x_vel + y_vel * y_vel);
+            
+            // 计算已执行时间
+            auto current_time = std::chrono::steady_clock::now();
+            auto elapsed = std::chrono::duration_cast<std::chrono::duration<double>>(current_time - start_time);
+            feedback->elapsed_time = elapsed.count();
             
             // 发布反馈
             goal_handle->publish_feedback(feedback);
             
-            // 等待运动完成
-            std::this_thread::sleep_for(std::chrono::milliseconds(100));
-            
-            // 更新最后完成的段ID
+            // 6. 更新最后完成的段ID
             last_completed_id = static_cast<uint32_t>(i);
         }
         
