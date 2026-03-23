@@ -1,0 +1,29 @@
+# Goal: 目标位置请求
+PathSegment[] segments     # 路径段数组，包含所有要执行的运动段
+float64 global_speed       # 全局运动速度 (mm/s)
+uint8 laser_power          # 激光功率 (0-255)
+float64 corner_mode        # 拐角模式：0-无，1-减速，2-倒角
+float64 corner_value       # 拐角参数：减速角度或倒角半径
+bool is_absolute           # 坐标模式：true-绝对坐标，false-相对坐标
+bool wait_for_buffer       # 缓冲区策略：true-阻塞等待，false-非阻塞
+uint32 start_segment_id    # 断点续传：从哪个段ID开始执行 (默认0)
+float64 override_velocity  # 实时速度倍率 (0.1-2.0)
+float64 soft_limit_max_x   # X轴正向软限位
+float64 soft_limit_max_y   # Y轴正向软限位
+---
+# Result: 最终结果
+bool success               # 执行是否成功
+bool cancelled             # 是否被取消
+uint32 last_completed_id   # 最后完成的段ID (用于断点续传)
+string error_msg           # 错误信息 (如果执行失败)
+---
+# Feedback: 实时反馈
+bool is_running            # 是否正在运行
+uint32 current_segment_id  # 当前正在执行的段ID
+float64 progress           # 总体执行进度 (0.0-1.0)
+geometry_msgs/Point current_pos  # 当前位置坐标
+uint32 buffer_remaining    # 硬件剩余缓存空间
+uint16 status_word         # 轴状态字
+bool laser_is_emitting     # 激光实际输出状态
+float64 current_velocity   # 当前实际速度
+float64 elapsed_time       # 已执行时间 (秒)

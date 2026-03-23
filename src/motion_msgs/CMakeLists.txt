@@ -27,12 +27,14 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/AxisStatus.msg"
   "msg/AxesState.msg"
   "msg/ObjectPosition.msg"
+  "msg/PathSegment.msg"
   "srv/LoadFile.srv"
   "srv/ConvertDxfToCam.srv"
   "srv/ConvertDxfToXml.srv"
   "action/ConvertDxfToCam.action"
   "action/AxesMoving.action"
   "action/AxesHoming.action"
+  "action/MovePath.action"
   DEPENDENCIES 
     std_msgs
     sensor_msgs

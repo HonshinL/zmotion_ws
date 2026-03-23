@@ -14,6 +14,7 @@
 #include "motion_msgs/srv/convert_dxf_to_xml.hpp"
 #include "motion_msgs/action/axes_moving.hpp"
 #include "motion_msgs/action/axes_homing.hpp"
+#include "motion_msgs/action/move_path.hpp"
 #include "rclcpp_action/rclcpp_action.hpp"
 #include <limits>
 #include "zmotion_driver/zmcaux.h"
@@ -144,6 +145,36 @@ public:
      */
     void executeAxesHoming(
         const std::shared_ptr<rclcpp_action::ServerGoalHandle<motion_msgs::action::AxesHoming>> goal_handle);
+    
+    // 路径运动Action
+    /**
+     * @brief 处理路径运动的Action请求
+     * @param goal_handle Action目标句柄
+     */
+    rclcpp_action::GoalResponse handleMovePathGoal(
+        const rclcpp_action::GoalUUID & uuid,
+        std::shared_ptr<const motion_msgs::action::MovePath::Goal> goal);
+    
+    /**
+     * @brief 处理路径运动Action取消请求
+     * @param goal_handle Action目标句柄
+     */
+    rclcpp_action::CancelResponse handleMovePathCancel(
+        const std::shared_ptr<rclcpp_action::ServerGoalHandle<motion_msgs::action::MovePath>> goal_handle);
+    
+    /**
+     * @brief 接受并执行路径运动Action
+     * @param goal_handle Action目标句柄
+     */
+    void handleMovePathAccepted(
+        const std::shared_ptr<rclcpp_action::ServerGoalHandle<motion_msgs::action::MovePath>> goal_handle);
+    
+    /**
+     * @brief 执行路径运动Action
+     * @param goal_handle Action目标句柄
+     */
+    void executeMovePath(
+        const std::shared_ptr<rclcpp_action::ServerGoalHandle<motion_msgs::action::MovePath>> goal_handle);
     
     /**
      * @brief 执行单轴回零操作
@@ -399,12 +430,13 @@ private:
     rclcpp_action::Server<motion_msgs::action::AxesMoving>::SharedPtr axes_moving_action_server_;  ///< 轴移动Action服务器
 
     rclcpp_action::Server<motion_msgs::action::AxesHoming>::SharedPtr axes_homing_action_server_;  ///< 多轴回零Action服务器
+    rclcpp_action::Server<motion_msgs::action::MovePath>::SharedPtr move_path_action_server_;  ///< 路径运动Action服务器
     
     // Action执行状态
     std::atomic<bool> action_running_;  ///< Action是否正在执行
     std::shared_ptr<rclcpp_action::ServerGoalHandle<motion_msgs::action::AxesMoving>> current_axes_moving_goal_handle_;  ///< 当前轴移动Action目标句柄
-
     std::shared_ptr<rclcpp_action::ServerGoalHandle<motion_msgs::action::AxesHoming>> current_axes_homing_goal_handle_;  ///< 当前多轴回零Action目标句柄
+    std::shared_ptr<rclcpp_action::ServerGoalHandle<motion_msgs::action::MovePath>> current_move_path_goal_handle_;  ///< 当前路径运动Action目标句柄
     
     // 轴参数
     

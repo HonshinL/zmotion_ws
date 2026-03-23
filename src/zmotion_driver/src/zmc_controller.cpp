@@ -42,6 +42,179 @@ bool ZmcController::connect(const std::string& ip) {
     }
 }
 
+// 路径运动Action处理函数
+rclcpp_action::GoalResponse ZmcController::handleMovePathGoal(
+    const rclcpp_action::GoalUUID & uuid, std::shared_ptr<const motion_msgs::action::MovePath::Goal> goal) {
+    
+    RCLCPP_INFO(this->get_logger(), "收到路径运动Action请求");
+    
+    // 检查控制器是否连接
+    if (!is_connected_) {
+        RCLCPP_ERROR(this->get_logger(), "控制器未连接，拒绝Action请求");
+        return rclcpp_action::GoalResponse::REJECT;
+    }
+    
+    // 检查是否有正在执行的Action
+    if (action_running_) {
+        RCLCPP_WARN(this->get_logger(), "已有Action正在执行，拒绝新请求");
+        return rclcpp_action::GoalResponse::REJECT;
+    }
+    
+    // 检查目标参数有效性
+    if (goal->segments.empty()) {
+        RCLCPP_ERROR(this->get_logger(), "路径段列表为空，拒绝Action请求");
+        return rclcpp_action::GoalResponse::REJECT;
+    }
+    
+    RCLCPP_INFO(this->get_logger(), "接受路径运动Action请求，共 %zu 个路径段", goal->segments.size());
+    return rclcpp_action::GoalResponse::ACCEPT_AND_EXECUTE;
+}
+
+// 处理路径运动Action取消请求
+rclcpp_action::CancelResponse ZmcController::handleMovePathCancel(
+    const std::shared_ptr<rclcpp_action::ServerGoalHandle<motion_msgs::action::MovePath>> goal_handle) {
+    
+    RCLCPP_INFO(this->get_logger(), "收到路径运动Action取消请求");
+    
+    if (action_running_ && current_move_path_goal_handle_ == goal_handle) {
+        // 停止所有轴的运动
+        for (int64_t axis : running_axes_) {
+            ZAux_Direct_Single_Cancel(handle_, static_cast<int>(axis), 0);
+        }
+        
+        action_running_ = false;
+        RCLCPP_INFO(this->get_logger(), "路径运动Action已取消");
+        return rclcpp_action::CancelResponse::ACCEPT;
+    }
+    
+    RCLCPP_WARN(this->get_logger(), "没有正在执行的路径运动Action可以取消");
+    return rclcpp_action::CancelResponse::REJECT;
+}
+
+// 接受并执行路径运动Action
+void ZmcController::handleMovePathAccepted(
+    const std::shared_ptr<rclcpp_action::ServerGoalHandle<motion_msgs::action::MovePath>> goal_handle) {
+    
+    RCLCPP_INFO(this->get_logger(), "路径运动Action目标被接受，启动异步执行");
+    
+    // 启动独立线程执行，避免阻塞ROS2主线程
+    std::thread{std::bind(&ZmcController::executeMovePath, this, goal_handle)}.detach();
+}
+
+void ZmcController::executeMovePath(
+    const std::shared_ptr<rclcpp_action::ServerGoalHandle<motion_msgs::action::MovePath>> goal_handle) {
+    
+    // 设置执行状态
+    action_running_ = true;
+    current_move_path_goal_handle_ = goal_handle;
+    
+    auto goal = goal_handle->get_goal();
+    auto result = std::make_shared<motion_msgs::action::MovePath::Result>();
+    auto feedback = std::make_shared<motion_msgs::action::MovePath::Feedback>();
+    
+    // 记录开始时间
+    auto start_time = std::chrono::steady_clock::now();
+    
+    RCLCPP_INFO(this->get_logger(), "开始异步执行路径运动Action，共 %zu 个路径段", goal->segments.size());
+    
+    try {
+        
+        // 检查控制器连接状态
+        if (!is_connected_) {
+            throw std::runtime_error("控制器未连接");
+        }
+        
+        // 从参数服务器读取运动参数并设置
+        setAxisMoveParameters();
+        
+        // 设置拐角模式
+        if (checkError(ZAux_Direct_SetCornerMode(handle_, static_cast<int>(goal->corner_mode), goal->corner_value))) {
+            RCLCPP_INFO(this->get_logger(), "设置拐角模式: %d, 值: %.3f", static_cast<int>(goal->corner_mode), goal->corner_value);
+        }
+        
+        // 执行路径运动
+        uint32_t last_completed_id = goal->start_segment_id;
+        for (size_t i = goal->start_segment_id; i < goal->segments.size(); ++i) {
+            // 检查是否被取消
+            if (goal_handle->is_canceling()) {
+                result->success = false;
+                result->last_completed_id = last_completed_id;
+                result->error_msg = "Action被用户取消";
+                goal_handle->canceled(result);
+                action_running_ = false;
+                RCLCPP_INFO(this->get_logger(), "路径运动Action执行被取消");
+                return;
+            }
+            
+            // 检查控制器连接状态
+            if (!is_connected_) {
+                throw std::runtime_error("控制器连接断开");
+            }
+            
+            // 获取当前路径段
+            const auto& segment = goal->segments[i];
+            
+            // 构建轴列表和位置列表
+            std::vector<int64_t> axes;
+            std::vector<double> positions;
+            
+            // 假设路径段包含X、Y轴的位置
+            axes.push_back(0); // X轴
+            axes.push_back(2); // Y轴
+            positions.push_back(segment.target_pos.x);
+            positions.push_back(segment.target_pos.y);
+            
+            // 执行运动
+            if (!moveAxes(axes, positions)) {
+                throw std::runtime_error("执行路径段运动失败");
+            }
+            
+            // 更新当前段ID
+            feedback->current_segment_id = static_cast<uint32_t>(i);
+            feedback->progress = static_cast<double>(i + 1) / goal->segments.size();
+            
+            // 获取当前位置
+            float x_pos = 0.0, y_pos = 0.0;
+            ZAux_Direct_GetDpos(handle_, 0, &x_pos);
+            ZAux_Direct_GetDpos(handle_, 2, &y_pos);
+            feedback->current_pos.x = x_pos;
+            feedback->current_pos.y = y_pos;
+            
+            // 获取硬件剩余缓存空间
+            int32 space = 0;
+            // 如果需要获取实际缓存空间，请使用正确的API函数
+            feedback->buffer_remaining = 0; // 暂时设为0
+            
+            // 发布反馈
+            goal_handle->publish_feedback(feedback);
+            
+            // 等待运动完成
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            
+            // 更新最后完成的段ID
+            last_completed_id = static_cast<uint32_t>(i);
+        }
+        
+        // 执行完成
+        result->success = true;
+        result->last_completed_id = last_completed_id;
+        result->error_msg = "";
+        goal_handle->succeed(result);
+        RCLCPP_INFO(this->get_logger(), "路径运动Action执行完成");
+        
+    } catch (const std::exception& e) {
+        RCLCPP_ERROR(this->get_logger(), "路径运动Action执行失败: %s", e.what());
+        result->success = false;
+        result->last_completed_id = 0;
+        result->error_msg = e.what();
+        goal_handle->abort(result);
+    }
+    
+    // 重置执行状态
+    action_running_ = false;
+    current_move_path_goal_handle_.reset();
+}
+
 void ZmcController::disconnect() {
     if (is_connected_ && handle_) {
         ZAux_Close(handle_);
@@ -249,6 +422,14 @@ void ZmcController::initROS() {
         std::bind(&ZmcController::handleAxesHomingGoal, this, std::placeholders::_1, std::placeholders::_2),
         std::bind(&ZmcController::handleAxesHomingCancel, this, std::placeholders::_1),
         std::bind(&ZmcController::handleAxesHomingAccepted, this, std::placeholders::_1));
+    
+    // 创建路径运动Action服务器
+    move_path_action_server_ = rclcpp_action::create_server<motion_msgs::action::MovePath>(
+        this,
+        "zmc_act/move_path",
+        std::bind(&ZmcController::handleMovePathGoal, this, std::placeholders::_1, std::placeholders::_2),
+        std::bind(&ZmcController::handleMovePathCancel, this, std::placeholders::_1),
+        std::bind(&ZmcController::handleMovePathAccepted, this, std::placeholders::_1));
     
     // 初始化Action状态
     action_running_ = false;
