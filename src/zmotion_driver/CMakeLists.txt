@@ -86,6 +86,30 @@ target_link_libraries(zmotion_test
     ${CMAKE_CURRENT_SOURCE_DIR}/lib/libzmotion.so
 )
 
+# 添加测试程序可执行文件
+add_executable(test_move
+    src/test_move.cpp
+    src/zmcaux.cpp
+    src/zmc_controller.cpp
+)
+
+set_target_properties(test_move PROPERTIES
+  INSTALL_RPATH "$ORIGIN"
+  BUILD_WITH_INSTALL_RPATH TRUE
+)
+
+target_include_directories(test_move PUBLIC
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    $<INSTALL_INTERFACE:include>
+)
+
+ament_target_dependencies(test_move rclcpp rclcpp_action std_msgs sensor_msgs slms_interface motion_msgs)
+
+target_link_libraries(test_move
+    pthread
+    ${CMAKE_CURRENT_SOURCE_DIR}/lib/libzmotion.so
+)
+
 # # 添加 Action Server 可执行文件
 # add_executable(zmotion_action_server
 #     src/action_server.cpp
@@ -122,6 +146,7 @@ target_link_libraries(zmotion_test
 install(TARGETS 
   zmotion_node
   zmotion_test
+  test_move
   # zmotion_action_server
   DESTINATION lib/${PROJECT_NAME}
 )
