@@ -164,43 +164,49 @@ void ZmcController::executeMovePath(
             const auto& seg = goal->segments[i];
             
             // 3. 根据类型压入指令
-            float pos[] = {static_cast<float>(seg.target_pos.x), static_cast<float>(seg.target_pos.y)};
             
             switch (seg.type) {
                 case 0: { // TYPE_LINE
-                    if (!checkError(ZAux_Direct_MoveAbs(handle_, num_axes, axes, pos))) {
+                    // 创建vector来存储目标位置
+                    std::vector<float> target_vec = {static_cast<float>(seg.target_pos.x), static_cast<float>(seg.target_pos.y)};
+                    if (!checkError(ZAux_Direct_MoveAbs(handle_, num_axes, axes, target_vec.data()))) {
                         throw std::runtime_error("执行直线运动失败");
                     }
                     break;
                 }
                 case 1: { // TYPE_ARC
-                    float center[] = {static_cast<float>(seg.center_pos.x), static_cast<float>(seg.center_pos.y)};
-
-                    if (!checkError(ZAux_Direct_MoveAbs(handle_, num_axes, axes, pos))) {
+                    float fend1 = static_cast<float>(seg.target_pos.x);
+                    float fend2 = static_cast<float>(seg.target_pos.y);
+                    float fcenter1 = static_cast<float>(seg.center_pos.x);
+                    float fcenter2 = static_cast<float>(seg.center_pos.y);
+                    int idirection = 0; // 0-逆时针，1-顺时针
+                    
+                    // 执行圆弧运动
+                    if (!checkError(ZAux_Direct_MoveCircAbs(handle_, num_axes, axes, fend1, fend2, fcenter1, fcenter2, idirection))) {
                         throw std::runtime_error("执行圆弧运动失败");
                     }
                     break;
                 }
                 case 2: { // TYPE_ELLIPSE
-                    float ellipse_center[] = {static_cast<float>(seg.center_pos.x), static_cast<float>(seg.center_pos.y)};
+                    // float ellipse_center[] = {static_cast<float>(seg.center_pos.x), static_cast<float>(seg.center_pos.y)};
 
-                    if (!checkError(ZAux_Direct_MoveAbs(handle_, num_axes, axes, pos))) {
-                        throw std::runtime_error("执行椭圆运动失败");
-                    }
+                    // if (!checkError(ZAux_Direct_MoveAbs(handle_, num_axes, axes, pos))) {
+                    //     throw std::runtime_error("执行椭圆运动失败");
+                    // }
                     break;
                 }
                 case 3: { // TYPE_SPIRAL
-                    float spiral_center[] = {static_cast<float>(seg.center_pos.x), static_cast<float>(seg.center_pos.y)};
+                    // float spiral_center[] = {static_cast<float>(seg.center_pos.x), static_cast<float>(seg.center_pos.y)};
 
-                    if (!checkError(ZAux_Direct_MoveAbs(handle_, num_axes, axes, pos))) {
-                        throw std::runtime_error("执行螺旋运动失败");
-                    }
+                    // if (!checkError(ZAux_Direct_MoveAbs(handle_, num_axes, axes, pos))) {
+                    //     throw std::runtime_error("执行螺旋运动失败");
+                    // }
                     break;
                 }
                 case 4: { // TYPE_SPLINE
-                    if (!checkError(ZAux_Direct_MoveAbs(handle_, num_axes, axes, pos))) {
-                        throw std::runtime_error("执行样条曲线运动失败");
-                    }
+                    // if (!checkError(ZAux_Direct_MoveAbs(handle_, num_axes, axes, pos))) {
+                    //     throw std::runtime_error("执行样条曲线运动失败");
+                    // }
                     break;
                 }
                 default:
