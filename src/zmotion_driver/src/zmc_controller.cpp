@@ -130,7 +130,7 @@ void ZmcController::executeMovePath(
         // 1. 初始化
         int base_axis = 0; // 假设使用轴0作为基轴
         int num_axes = 2; // 假设使用2个轴（X和Y）
-        int axes[] = {0, 2}; // 轴0和轴2
+        std::vector<int> axes = {0, 2}; // 轴0和轴2
         
         if (checkError(ZAux_Direct_SetMerge(handle_, base_axis, 1))) {
             RCLCPP_INFO(this->get_logger(), "开启Merge模式成功");
@@ -169,7 +169,7 @@ void ZmcController::executeMovePath(
                 case 0: { // TYPE_LINE
                     // 创建vector来存储目标位置
                     std::vector<float> target_vec = {static_cast<float>(seg.target_pos.x), static_cast<float>(seg.target_pos.y)};
-                    if (!checkError(ZAux_Direct_MoveAbs(handle_, num_axes, axes, target_vec.data()))) {
+                    if (!checkError(ZAux_Direct_MoveAbs(handle_, num_axes, axes.data(), target_vec.data()))) {
                         throw std::runtime_error("执行直线运动失败");
                     }
                     break;
@@ -182,7 +182,7 @@ void ZmcController::executeMovePath(
                     int idirection = 0; // 0-逆时针，1-顺时针
                     
                     // 执行圆弧运动
-                    if (!checkError(ZAux_Direct_MoveCircAbs(handle_, num_axes, axes, fend1, fend2, fcenter1, fcenter2, idirection))) {
+                    if (!checkError(ZAux_Direct_MoveCircAbs(handle_, num_axes, axes.data(), fend1, fend2, fcenter1, fcenter2, idirection))) {
                         throw std::runtime_error("执行圆弧运动失败");
                     }
                     break;
