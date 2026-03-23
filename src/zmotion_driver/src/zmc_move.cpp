@@ -23,18 +23,42 @@ public:
         controller_->disconnect();
     }
     
+    // 运动类型枚举
+    enum class MoveType {
+        LINE,
+        ARC,
+        PATH,
+        UNKNOWN
+    };
+
+    // 将字符串转换为运动类型枚举
+    MoveType stringToMoveType(const std::string& move_type) {
+        if (move_type == "line") return MoveType::LINE;
+        if (move_type == "arc") return MoveType::ARC;
+        if (move_type == "path") return MoveType::PATH;
+        return MoveType::UNKNOWN;
+    }
+
     void testMove(const std::string& move_type) {
         RCLCPP_INFO(this->get_logger(), "测试运动类型: %s", move_type.c_str());
         
-        if (move_type == "line") {
-            testLineMove();
-        } else if (move_type == "arc") {
-            testArcMove();
-        } else if (move_type == "path") {
-            testPathMove();
-        } else {
-            RCLCPP_ERROR(this->get_logger(), "未知的运动类型: %s", move_type.c_str());
-            RCLCPP_INFO(this->get_logger(), "支持的运动类型: line, arc, path");
+        MoveType type = stringToMoveType(move_type);
+        
+        switch (type) {
+            case MoveType::LINE:
+                testLineMove();
+                break;
+            case MoveType::ARC:
+                testArcMove();
+                break;
+            case MoveType::PATH:
+                testPathMove();
+                break;
+            case MoveType::UNKNOWN:
+            default:
+                RCLCPP_ERROR(this->get_logger(), "未知的运动类型: %s", move_type.c_str());
+                RCLCPP_INFO(this->get_logger(), "支持的运动类型: line, arc, path");
+                break;
         }
     }
     
