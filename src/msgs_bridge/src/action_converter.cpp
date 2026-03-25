@@ -98,15 +98,15 @@ private:
             }
             target_position = positions[0];
         } else if (axis_num == 1) {
-            // 如果轴号是1，则控制轴2移动到倒数第一个数据
+            // 如果轴号是1，则控制轴2移动到第二个数据
             actual_axis = 2;
             RCLCPP_INFO(this->get_logger(), "轴号1被映射到轴2");
-            if (positions.empty()) {
-                RCLCPP_ERROR(this->get_logger(), "位置数组为空");
+            if (positions.size() < 2) {
+                RCLCPP_ERROR(this->get_logger(), "位置数组长度不足，需要至少2个元素");
                 return;
             }
-            // 取倒数第一个数据
-            target_position = positions.back();
+            // 取第二个数据
+            target_position = positions[1];
         } else if (axis_num != 2 && axis_num != 4 && axis_num != 5) {
             // 只接受0, 2, 4, 5中的轴号
             RCLCPP_ERROR(this->get_logger(), "无效的轴号: %d，只支持0, 2, 4, 5", axis_num);
@@ -130,6 +130,7 @@ private:
         }
         
         auto goal_msg = AxesMoving::Goal();
+        RCLCPP_INFO(this->get_logger(), "目标轴号: %d, 目标位置: %.3f", actual_axis, target_position);
         goal_msg.target_axes = {static_cast<int64_t>(actual_axis)};
         goal_msg.target_positions = {static_cast<double>(target_position)};
         
@@ -172,7 +173,7 @@ private:
                     return;
                 }
                 // 取倒数第一个数据
-                actual_positions.push_back(positions.back());
+                actual_positions.push_back(positions[1]);
             } else if (axis_num != 2 && axis_num != 4 && axis_num != 5) {
                 // 只接受0, 2, 4, 5中的轴号
                 RCLCPP_ERROR(this->get_logger(), "无效的轴号: %d，只支持0, 2, 4, 5", axis_num);

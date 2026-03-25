@@ -152,4 +152,51 @@ ros2 action send_goal /zmc_act/move_to_position motion_msgs/action/MoveToPositio
 4. **安全停止**：可以使用 `Ctrl+C` 或取消命令来停止正在执行的action
 
 这些命令应该能帮助您通过命令行发送action目标并控制设备移动到指定位置。
-        
+
+```bash
+
+ros2 action send_goal /zmc_act/move_path motion_msgs/action/MovePath "{segments: [{type: 0, target_pos: {x: 50.0, y: 50.0}}]}" --feedback
+
+ros2 action send_goal /zmc_act/move_path motion_msgs/action/MovePath "{segments: [{type: 0, target_pos: {x: 0.0, y: 0.0}}]}" --feedback
+
+ros2 action send_goal /zmc_act/move_path motion_msgs/action/MovePath "{
+  segments: [
+    {
+      type: 1,
+      center_pos: {x: 5.0, y: 0.0},
+      target_pos: {x: 10.0, y: 0.0}
+    },
+   ], 
+}" --feedback
+
+ros2 action send_goal /zmc_act/move_path motion_msgs/action/MovePath "{ 
+   segments: [ 
+     { 
+       type: 1, 
+       center_pos: {x: 50.0, y: 0.0}, 
+       target_pos: {x: 100.0, y: 0.0} 
+     }, 
+     { 
+       type: 0, 
+       target_pos: {x: 10.0, y: 0.0}
+     } 
+   ], 
+ }" --feedback
+
+ros2 action send_goal /zmc_act/move_path motion_msgs/action/MovePath "{ 
+   segments: [ 
+     { 
+       type: 0, 
+       target_pos: {x: 50.0, y: 0.0}
+     }, 
+     { 
+       type: 0, 
+       target_pos: {x: 50.0, y: 30.0}
+     }, 
+     { 
+       type: 0, 
+       target_pos: {x: 0.0, y: 30.0}
+     } 
+   ], 
+ }" --feedback
+```  

@@ -115,6 +115,9 @@ void ZmcController::executeMovePath(
     // 记录开始时间
     auto start_time = std::chrono::steady_clock::now();
     
+    // 初始化最后完成的段ID
+    uint32_t last_completed_id = goal->start_segment_id;
+    
     RCLCPP_INFO(this->get_logger(), "开始异步执行路径运动Action，共 %zu 个路径段", goal->segments.size());
     
     try {
@@ -128,16 +131,29 @@ void ZmcController::executeMovePath(
         setAxisMoveParameters();
         
         // 1. 初始化
-        int base_axis = 0; // 假设使用轴0作为基轴
-        int num_axes = 2; // 假设使用2个轴（X和Y）
-        std::vector<int> axes = {0, 2}; // 轴0和轴2
+        int base_axis = 5; // 基轴设置
+        int num_axes = 2; // 使用2个轴（X和Y）
+        std::vector<int> axes = {5, 4}; // 目标轴：索引0=轴5，索引1=轴4
         
         if (checkError(ZAux_Direct_SetMerge(handle_, base_axis, 1))) {
             RCLCPP_INFO(this->get_logger(), "开启Merge模式成功");
         }
         
-        // 执行路径运动
-        uint32_t last_completed_id = goal->start_segment_id;
+        // 如果goal中指定了速度，则设置速度
+        if (goal->global_speed > 0) {
+            for (int axis : axes) {
+                if (!checkError(ZAux_Direct_SetSpeed(handle_, axis, goal->global_speed))) {
+                    RCLCPP_WARN(this->get_logger(), "设置轴 %d 速度失败", axis);
+                }
+            }
+        }
+        
+        // 2. 缓存所有路径段指令
+        RCLCPP_INFO(this->get_logger(), "开始缓存路径段指令");
+        
+        // 记录每个路径段的目标位置
+        std::vector<std::vector<float>> segment_targets;
+        
         for (size_t i = goal->start_segment_id; i < goal->segments.size(); ++i) {
             // 检查是否被取消
             if (goal_handle->is_canceling()) {
@@ -157,102 +173,222 @@ void ZmcController::executeMovePath(
                 throw std::runtime_error("控制器连接断开");
             }
             
-            // 2. 缓冲区监控
+            // 缓冲区监控
             std::this_thread::sleep_for(std::chrono::milliseconds(5));
             
             // 获取当前路径段
             const auto& seg = goal->segments[i];
             
-            // 3. 根据类型压入指令
-            
+            // 根据类型压入指令
+            std::vector<float> target_positions;
             switch (seg.type) {
                 case 0: { // TYPE_LINE
                     // 创建vector来存储目标位置
-                    std::vector<float> target_vec = {static_cast<float>(seg.target_pos.x), static_cast<float>(seg.target_pos.y)};
-                    if (!checkError(ZAux_Direct_MoveAbs(handle_, num_axes, axes.data(), target_vec.data()))) {
+                    target_positions = {static_cast<float>(seg.target_pos.x), static_cast<float>(seg.target_pos.y)};
+                    if (!checkError(ZAux_Direct_MoveAbs(handle_, num_axes, axes.data(), target_positions.data()))) {
                         throw std::runtime_error("执行直线运动失败");
                     }
+                    segment_targets.push_back(target_positions);
                     break;
                 }
                 case 1: { // TYPE_ARC
+                    // 获取当前位置作为圆弧起点
+                    float start_x = 0.0, start_y = 0.0;
+                    ZAux_Direct_GetDpos(handle_, axes[0], &start_x);
+                    ZAux_Direct_GetDpos(handle_, axes[1], &start_y);
+                    
+                    // 圆弧参数可能是绝对坐标，需要验证
+                    // 先尝试使用绝对坐标
                     float fend1 = static_cast<float>(seg.target_pos.x);
                     float fend2 = static_cast<float>(seg.target_pos.y);
                     float fcenter1 = static_cast<float>(seg.center_pos.x);
                     float fcenter2 = static_cast<float>(seg.center_pos.y);
                     int idirection = 0; // 0-逆时针，1-顺时针
                     
+                    RCLCPP_INFO(this->get_logger(), "圆弧运动参数测试: 起点(%.2f, %.2f), 中心点(%.2f, %.2f), 终点(%.2f, %.2f)", 
+                               start_x, start_y, fcenter1, fcenter2, fend1, fend2);
+                    
                     // 执行圆弧运动
-                    if (!checkError(ZAux_Direct_MoveCircAbs(handle_, num_axes, axes.data(), fend1, fend2, fcenter1, fcenter2, idirection))) {
+                    if (!checkError(ZAux_Direct_MoveCirc(handle_, num_axes, axes.data(), fend1, fend2, fcenter1, fcenter2, idirection))) {
+                    // if (!checkError(ZAux_Direct_MoveCirc(handle_, 2, axes.data(), 10.0, 0.0, 5.0, 0.0, 0))) {
                         throw std::runtime_error("执行圆弧运动失败");
                     }
+                    
+                    // 记录目标位置
+                    target_positions = {start_x+fend1, start_y+fend2};
+                    // target_positions = {fend1, fend2};
+                    segment_targets.push_back(target_positions);
                     break;
                 }
                 case 2: { // TYPE_ELLIPSE
-                    // float ellipse_center[] = {static_cast<float>(seg.center_pos.x), static_cast<float>(seg.center_pos.y)};
-
-                    // if (!checkError(ZAux_Direct_MoveAbs(handle_, num_axes, axes, pos))) {
-                    //     throw std::runtime_error("执行椭圆运动失败");
-                    // }
+                    throw std::runtime_error("椭圆运动尚未实现");
                     break;
                 }
                 case 3: { // TYPE_SPIRAL
-                    // float spiral_center[] = {static_cast<float>(seg.center_pos.x), static_cast<float>(seg.center_pos.y)};
-
-                    // if (!checkError(ZAux_Direct_MoveAbs(handle_, num_axes, axes, pos))) {
-                    //     throw std::runtime_error("执行螺旋运动失败");
-                    // }
+                    throw std::runtime_error("螺旋运动尚未实现");
                     break;
                 }
                 case 4: { // TYPE_SPLINE
-                    // if (!checkError(ZAux_Direct_MoveAbs(handle_, num_axes, axes, pos))) {
-                    //     throw std::runtime_error("执行样条曲线运动失败");
-                    // }
+                    throw std::runtime_error("样条曲线运动尚未实现");
                     break;
                 }
                 default:
                     throw std::runtime_error("未知的运动类型");
             }
             
-            // 4. 关键：紧跟运动指令后压入 IO 操作 (开关激光)
+            // 关键：紧跟运动指令后压入 IO 操作 (开关激光)
             // 假设激光IO端口为1
             // const int LASER_IO = 1;
             // if (!checkError(ZAux_Direct_MoveOp(handle_, LASER_IO, goal->laser_power > 0 ? 1 : 0))) {
             //     RCLCPP_WARN(this->get_logger(), "设置激光状态失败");
             // }
             
-            // 5. 发布 Feedback
-            feedback->is_running = true;
-            feedback->current_segment_id = static_cast<uint32_t>(i);
-            feedback->progress = static_cast<double>(i + 1) / goal->segments.size();
+            // 更新最后完成的段ID（用于错误处理）
+            last_completed_id = static_cast<uint32_t>(i);
+        }
+        
+        RCLCPP_INFO(this->get_logger(), "所有路径段指令缓存完成，开始执行");
+        
+        // 3. 等待所有路径段执行完成并发布反馈
+        bool all_completed = false;
+        int wait_count = 0;
+        const int MAX_WAIT = 3000; // 最多等待300秒
+        auto execution_start_time = std::chrono::steady_clock::now();
+        const double EXECUTION_TIMEOUT = 300.0; // 总执行时间最多300秒
+        
+        // 记录起始位置
+        std::vector<float> start_positions;
+        for (int axis : axes) {
+            float pos = 0.0;
+            ZAux_Direct_GetDpos(handle_, axis, &pos);
+            start_positions.push_back(pos);
+        }
+        
+        // 记录最终目标位置（最后一个路径段的目标位置）
+        std::vector<float> final_target_positions;
+        if (!segment_targets.empty()) {
+            final_target_positions = segment_targets.back();
+        }
+        
+        while (action_running_ && !all_completed) {
+            // 检查是否被取消
+            if (goal_handle->is_canceling()) {
+                // 执行急停
+                ZAux_Direct_Rapidstop(handle_, 2);
+                result->success = false;
+                result->last_completed_id = last_completed_id;
+                result->error_msg = "Action被用户取消";
+                goal_handle->canceled(result);
+                action_running_ = false;
+                RCLCPP_INFO(this->get_logger(), "路径运动Action执行被取消");
+                return;
+            }
             
-            // 获取当前位置
+            // 检查控制器连接状态
+            if (!is_connected_) {
+                throw std::runtime_error("控制器连接断开");
+            }
+            
+            // 检查超时
+            auto current_time = std::chrono::steady_clock::now();
+            auto elapsed = std::chrono::duration_cast<std::chrono::duration<double>>(current_time - execution_start_time).count();
+            if (elapsed > EXECUTION_TIMEOUT) {
+                throw std::runtime_error("路径运动执行超时");
+            }
+            
+            // 获取当前位置和速度
             float x_pos = 0.0, y_pos = 0.0;
-            ZAux_Direct_GetDpos(handle_, 0, &x_pos);
-            ZAux_Direct_GetDpos(handle_, 2, &y_pos);
+            ZAux_Direct_GetDpos(handle_, axes[0], &x_pos); // 使用轴5作为X轴
+            ZAux_Direct_GetDpos(handle_, axes[1], &y_pos); // 使用轴4作为Y轴
+            
+            float x_vel = 0.0, y_vel = 0.0;
+            ZAux_Direct_GetSpeed(handle_, axes[0], &x_vel); // 使用轴5作为X轴
+            ZAux_Direct_GetSpeed(handle_, axes[1], &y_vel); // 使用轴4作为Y轴
+            
+            // 检查是否到达最终目标位置
+            all_completed = true;
+            if (!final_target_positions.empty()) {
+                for (size_t j = 0; j < axes.size(); ++j) {
+                    double current_pos = (j == 0) ? x_pos : y_pos;
+                    double target_pos = final_target_positions[j];
+                    if (std::abs(current_pos - target_pos) > 0.001) {
+                        all_completed = false;
+                        break;
+                    }
+                }
+            }
+            
+            // 检查轴是否仍在运动
+            if (all_completed) {
+                for (int axis : axes) {
+                    int status = 0;
+                    if (checkError(ZAux_Direct_GetAxisStatus(handle_, axis, &status))) {
+                        // 检查轴是否处于运动状态
+                        // 这里假设状态值为0表示停止
+                        if (status != 0) {
+                            all_completed = false;
+                            break;
+                        }
+                    }
+                }
+            }
+            
+            // 计算进度
+            double progress = 0.0;
+            if (!segment_targets.empty() && !final_target_positions.empty()) {
+                // 基于当前位置与起始位置和最终目标位置的关系计算进度
+                double total_distance = 0.0;
+                double completed_distance = 0.0;
+                
+                // 计算总距离
+                for (size_t j = 0; j < axes.size(); ++j) {
+                    total_distance += std::abs(final_target_positions[j] - start_positions[j]);
+                }
+                
+                // 计算已完成距离
+                for (size_t j = 0; j < axes.size(); ++j) {
+                    double current_pos = (j == 0) ? x_pos : y_pos;
+                    completed_distance += std::abs(current_pos - start_positions[j]);
+                }
+                
+                if (total_distance > 0.001) {
+                    progress = std::min(1.0, completed_distance / total_distance);
+                } else {
+                    progress = 1.0;
+                }
+            } else {
+                progress = all_completed ? 1.0 : (static_cast<double>(wait_count) / MAX_WAIT);
+            }
+            
+            // 发布 Feedback
+            feedback->is_running = true;
+            feedback->current_segment_id = static_cast<uint32_t>(goal->segments.size() - 1); // 显示最后一个段
+            feedback->progress = progress;
             feedback->current_pos.x = x_pos;
             feedback->current_pos.y = y_pos;
-            
-            // 获取当前速度
-            float x_vel = 0.0, y_vel = 0.0;
-            ZAux_Direct_GetSpeed(handle_, 0, &x_vel);
-            ZAux_Direct_GetSpeed(handle_, 2, &y_vel);
             feedback->current_velocity = std::sqrt(x_vel * x_vel + y_vel * y_vel);
             
             // 计算已执行时间
-            auto current_time = std::chrono::steady_clock::now();
-            auto elapsed = std::chrono::duration_cast<std::chrono::duration<double>>(current_time - start_time);
-            feedback->elapsed_time = elapsed.count();
+            current_time = std::chrono::steady_clock::now();
+            elapsed = std::chrono::duration_cast<std::chrono::duration<double>>(current_time - start_time).count();
+            feedback->elapsed_time = elapsed;
             
             // 发布反馈
             goal_handle->publish_feedback(feedback);
             
-            // 6. 更新最后完成的段ID
-            last_completed_id = static_cast<uint32_t>(i);
+            if (!all_completed) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(100));
+                wait_count++;
+            }
+        }
+        
+        if (!all_completed) {
+            throw std::runtime_error("路径运动执行超时");
         }
         
         // 执行完成
         result->success = true;
-        result->last_completed_id = last_completed_id;
+        result->last_completed_id = static_cast<uint32_t>(goal->segments.size() - 1);
         result->error_msg = "";
         goal_handle->succeed(result);
         RCLCPP_INFO(this->get_logger(), "路径运动Action执行完成");
@@ -260,7 +396,7 @@ void ZmcController::executeMovePath(
     } catch (const std::exception& e) {
         RCLCPP_ERROR(this->get_logger(), "路径运动Action执行失败: %s", e.what());
         result->success = false;
-        result->last_completed_id = 0;
+        result->last_completed_id = last_completed_id; // 保持当前已完成的段数
         result->error_msg = e.what();
         goal_handle->abort(result);
     }
@@ -419,7 +555,7 @@ bool ZmcController::setAxisEnable(int axis, int enabled) {
 void ZmcController::initROS() {
     // 声明参数，默认值将被配置文件覆盖
     this->declare_parameter<std::string>("controller_ip", "192.168.0.11");
-    this->declare_parameter<std::vector<int64_t>>("running_axes", {0, 2});
+    this->declare_parameter<std::vector<int64_t>>("running_axes", {0, 2, 4, 5});
     this->declare_parameter<int64_t>("search_timeout_ms", 10000);
     
     // 控制器连接搜索超时时间(毫秒)，用于在网络断开后重新搜索连接
@@ -427,14 +563,14 @@ void ZmcController::initROS() {
     
     // 轴参数
     this->declare_parameter<std::vector<int64_t>>("holding_axes", {0, 1, 2, 4, 5});
-    this->declare_parameter<std::vector<double>>("axis_moving_pulse_equivalent", {13107.2, 13107.2, 13107.2, 1000.0, 1000.0});
-    this->declare_parameter<std::vector<double>>("axis_moving_max_speed", {50.0, 50.0, 50.0, 50.0, 50.0});
-    this->declare_parameter<std::vector<double>>("axis_moving_acceleration", {150.0, 150.0, 150.0, 150.0, 150.0});
-    this->declare_parameter<std::vector<double>>("axis_moving_deceleration", {150.0, 150.0, 150.0, 150.0, 150.0});
+    this->declare_parameter<std::vector<double>>("axis_moving_pulse_equivalent", {13107.2, 13107.2, 13107.2, 100.0, 100.0});
+    this->declare_parameter<std::vector<double>>("axis_moving_max_speed", {50.0, 50.0, 50.0, 10.0, 10.0});
+    this->declare_parameter<std::vector<double>>("axis_moving_acceleration", {150.0, 150.0, 150.0, 30.0, 30.0});
+    this->declare_parameter<std::vector<double>>("axis_moving_deceleration", {150.0, 150.0, 150.0, 30.0, 30.0});
     
     // 软限位参数
-    this->declare_parameter<std::vector<double>>("axis_soft_limit_forward", {480.0, 0.0, 0.0, 0.0, 0.0}); // 正向软限位
-    this->declare_parameter<std::vector<double>>("axis_soft_limit_reverse", {0.0, 0.0, 0.0, 0.0, 0.0}); // 反向软限位
+    this->declare_parameter<std::vector<double>>("axis_soft_limit_forward", {480.0, 100.0, 100.0, 999.0, 999.0}); // 正向软限位
+    this->declare_parameter<std::vector<double>>("axis_soft_limit_reverse", {-100.0, -100.0, -100.0, -999.0, -999.0}); // 反向软限位
     
     // 回零参数
     this->declare_parameter<bool>("auto_homing_on_start", true);

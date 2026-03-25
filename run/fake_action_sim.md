@@ -66,8 +66,15 @@ ros2 action send_goal /move_to_position motion_msgs/action/MoveToPosition "
 ```
 
 ros2 topic pub --once /app_pos slms_interface/msg/ObjectPosition "
-pos: [100.0]
+pos: [100, 10.0]
 mode: 1
-axis_num: 0
+axis_num: 1
+plane_coord: 0
+"
+
+ros2 topic pub --once /app_pos slms_interface/msg/ObjectPosition "
+pos: [100, 0.0]
+mode: 1
+axis_num: 1
 plane_coord: 0
 "
