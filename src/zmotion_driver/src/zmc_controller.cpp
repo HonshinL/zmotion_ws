@@ -221,7 +221,31 @@ void ZmcController::executeMovePath(
                     break;
                 }
                 case 2: { // TYPE_ELLIPSE
-                    throw std::runtime_error("椭圆运动尚未实现");
+                    // 获取当前位置作为椭圆起点
+                    float start_x = 0.0, start_y = 0.0;
+                    ZAux_Direct_GetDpos(handle_, axes[0], &start_x);
+                    ZAux_Direct_GetDpos(handle_, axes[1], &start_y);
+                    
+                    // 椭圆参数：相对于起点的终点(0,0)，相对于起点的中心点，旋转方向，轴半径
+                    float fend1 = static_cast<float>(seg.target_pos.x); // 相对于起点的终点X
+                    float fend2 = static_cast<float>(seg.target_pos.y); // 相对于起点的终点Y
+                    float fcenter1 = static_cast<float>(seg.center_pos.x); // 相对于起点的中心X
+                    float fcenter2 = static_cast<float>(seg.center_pos.y); // 相对于起点的中心Y
+                    int idirection = seg.rot_direction; // 旋转方向：0-逆时针，1-顺时针
+                    float fmajor_radius = static_cast<float>(seg.axis1_radius); // 轴1半径
+                    float fminor_radius = static_cast<float>(seg.axis2_radius); // 轴2半径
+                    
+                    RCLCPP_INFO(this->get_logger(), "椭圆运动参数: 起点(%.2f, %.2f), 中心点(%.2f, %.2f), 旋转方向(%d), 轴半径(%.2f, %.2f)", 
+                               start_x, start_y, fcenter1, fcenter2, idirection, fmajor_radius, fminor_radius);
+                    
+                    // 执行椭圆运动
+                    if (!checkError(ZAux_Direct_MEclipse(handle_, num_axes, axes.data(), fend1, fend2, fcenter1, fcenter2, idirection, fmajor_radius, fminor_radius))) {
+                        throw std::runtime_error("执行椭圆运动失败");
+                    }
+                    
+                    // 记录目标位置（椭圆运动终点与起点相同）
+                    target_positions = {start_x+fend1, start_y+fend2};
+                    segment_targets.push_back(target_positions);
                     break;
                 }
                 case 3: { // TYPE_SPIRAL

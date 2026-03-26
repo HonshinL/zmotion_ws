@@ -43,6 +43,7 @@ public:
         ARC,
         PATH,
         CIRC,
+        ELLI,
         UNKNOWN
     };
 
@@ -52,6 +53,7 @@ public:
         if (move_type == "arc") return MoveType::ARC;
         if (move_type == "path") return MoveType::PATH;
         if (move_type == "circ") return MoveType::CIRC;
+        if (move_type == "elli") return MoveType::ELLI;
         return MoveType::UNKNOWN;
     }
 
@@ -73,10 +75,13 @@ public:
             case MoveType::CIRC:
                 testCircMove();
                 break;
+            case MoveType::ELLI:
+                testElliMove();
+                break;
             case MoveType::UNKNOWN:
             default:
                 RCLCPP_ERROR(this->get_logger(), "未知的运动类型: %s", move_type.c_str());
-                RCLCPP_INFO(this->get_logger(), "支持的运动类型: line, arc, path, circ");
+                RCLCPP_INFO(this->get_logger(), "支持的运动类型: line, arc, path, circ, elli");
                 break;
         }
         
@@ -87,8 +92,75 @@ public:
     bool isMotionCompleted() const {
         return motion_completed_;
     }
-    
+
 private:
+    // 发送运动目标的辅助函数（完全异步版本）
+    void sendMotionGoal(const motion_msgs::action::MovePath::Goal& goal_msg, const std::string& motion_type) {
+        // 创建action客户端
+        auto action_client = rclcpp_action::create_client<motion_msgs::action::MovePath>(
+            this, "zmc_act/move_path");
+        
+        // 等待action服务器可用
+        if (!action_client->wait_for_action_server(std::chrono::seconds(10))) {
+            RCLCPP_ERROR(this->get_logger(), "Action服务器不可用，请先运行: ros2 run zmotion_driver zmotion_node");
+            RCLCPP_INFO(this->get_logger(), "检查Action服务器状态: ros2 action list");
+            return;
+        }
+        
+        RCLCPP_INFO(this->get_logger(), "Action服务器连接成功");
+        
+        auto send_goal_options = rclcpp_action::Client<motion_msgs::action::MovePath>::SendGoalOptions();
+        
+        // 设置目标响应回调（处理目标接受/拒绝）
+        send_goal_options.goal_response_callback = 
+            [this, motion_type](rclcpp_action::ClientGoalHandle<motion_msgs::action::MovePath>::SharedPtr goal_handle) {
+                if (!goal_handle) {
+                    RCLCPP_ERROR(this->get_logger(), "%s运动目标被拒绝", motion_type.c_str());
+                    // 目标被拒绝，标记完成（失败状态）
+                    motion_completed_ = true;
+                } else {
+                    RCLCPP_INFO(this->get_logger(), "%s运动目标被接受，运动已启动", motion_type.c_str());
+                    // 目标被接受，运动已开始，等待结果回调
+                }
+            };
+        
+        // 设置反馈回调
+        send_goal_options.feedback_callback = 
+            [this, motion_type](rclcpp_action::ClientGoalHandle<motion_msgs::action::MovePath>::SharedPtr goal_handle,
+                               const std::shared_ptr<const motion_msgs::action::MovePath::Feedback> feedback) {
+                RCLCPP_INFO(this->get_logger(), "%s运动进度: 当前段ID=%u, 进度=%.1f%%", 
+                           motion_type.c_str(), feedback->current_segment_id, feedback->progress * 100);
+            };
+        
+        // 设置结果回调（处理运动完成状态）
+        send_goal_options.result_callback = 
+            [this, motion_type](const rclcpp_action::ClientGoalHandle<motion_msgs::action::MovePath>::WrappedResult& result) {
+                switch (result.code) {
+                    case rclcpp_action::ResultCode::SUCCEEDED:
+                        RCLCPP_INFO(this->get_logger(), "%s运动执行成功", motion_type.c_str());
+                        break;
+                    case rclcpp_action::ResultCode::ABORTED:
+                        RCLCPP_ERROR(this->get_logger(), "%s运动执行失败", motion_type.c_str());
+                        break;
+                    case rclcpp_action::ResultCode::CANCELED:
+                        RCLCPP_WARN(this->get_logger(), "%s运动被取消", motion_type.c_str());
+                        break;
+                    default:
+                        RCLCPP_ERROR(this->get_logger(), "%s运动未知结果", motion_type.c_str());
+                        break;
+                }
+                motion_completed_ = true;
+                // rclcpp::shutdown();
+            };
+        
+        RCLCPP_INFO(this->get_logger(), "发送%s运动请求...", motion_type.c_str());
+        
+        // 完全异步发送，不等待结果
+        action_client->async_send_goal(goal_msg, send_goal_options);
+        
+        RCLCPP_INFO(this->get_logger(), "%s运动请求已发送，等待回调处理", motion_type.c_str());
+    }
+
     void testLineMove() {
         RCLCPP_INFO(this->get_logger(), "测试直线运动");
         
@@ -123,93 +195,12 @@ private:
         RCLCPP_INFO(this->get_logger(), "Goal参数: 直线段到(%.1f, %.1f), 速度%.1f", 
                    line_segment.target_pos.x, line_segment.target_pos.y, goal_msg.global_speed);
         
-        // 发送路径运动请求
-        RCLCPP_INFO(this->get_logger(), "发送路径运动请求");
-        
-        auto send_goal_options = rclcpp_action::Client<motion_msgs::action::MovePath>::SendGoalOptions();
-        
-        // 设置反馈回调
-        send_goal_options.feedback_callback = 
-            [this](rclcpp_action::ClientGoalHandle<motion_msgs::action::MovePath>::SharedPtr goal_handle,
-                   const std::shared_ptr<const motion_msgs::action::MovePath::Feedback> feedback) {
-                RCLCPP_INFO(this->get_logger(), "路径运动反馈: 当前段ID=%u, 进度=%f", 
-                           feedback->current_segment_id, feedback->progress);
-            };
-        
-        // 设置结果回调
-        send_goal_options.result_callback = 
-            [this](const rclcpp_action::ClientGoalHandle<motion_msgs::action::MovePath>::WrappedResult & result) {
-                switch (result.code) {
-                    case rclcpp_action::ResultCode::SUCCEEDED:
-                        RCLCPP_INFO(this->get_logger(), "路径运动完成");
-                        break;
-                    case rclcpp_action::ResultCode::ABORTED:
-                        RCLCPP_ERROR(this->get_logger(), "路径运动被中止");
-                        break;
-                    case rclcpp_action::ResultCode::CANCELED:
-                        RCLCPP_WARN(this->get_logger(), "路径运动被取消");
-                        break;
-                    default:
-                        RCLCPP_ERROR(this->get_logger(), "路径运动未知结果");
-                        break;
-                }
-                
-                // 标记运动完成
-                motion_completed_ = true;
-            };
-        
-        // 发送goal
-        RCLCPP_INFO(this->get_logger(), "正在发送goal...");
-        auto future_goal_handle = action_client->async_send_goal(goal_msg, send_goal_options);
-        
-        // 等待goal被接受
-        RCLCPP_INFO(this->get_logger(), "等待goal被接受...");
-        if (rclcpp::spin_until_future_complete(this->shared_from_this(), future_goal_handle) != 
-            rclcpp::FutureReturnCode::SUCCESS) {
-            RCLCPP_ERROR(this->get_logger(), "发送goal失败，可能Action服务器没有响应");
-            return;
-        }
-        
-        auto goal_handle = future_goal_handle.get();
-        if (!goal_handle) {
-            RCLCPP_ERROR(this->get_logger(), "goal被拒绝，可能参数不完整或Action服务器验证失败");
-            RCLCPP_INFO(this->get_logger(), "可以尝试手动测试: ros2 action send_goal /zmc_act/move_path motion_msgs/action/MovePath \"{segments: [{type: 0, target_pos: {x: 50.0, y: 50.0}}], global_speed: 50.0, laser_power: 0, start_segment_id: 0, corner_mode: 0}\" --feedback");
-            RCLCPP_INFO(this->get_logger(), "检查Action服务器日志以了解拒绝原因");
-            return;
-        }
-        
-        RCLCPP_INFO(this->get_logger(), "goal被接受，等待结果...");
-        
-        // 等待结果
-        auto future_result = action_client->async_get_result(goal_handle);
-        auto result_status = rclcpp::spin_until_future_complete(this->shared_from_this(), future_result);
-        
-        if (result_status == rclcpp::FutureReturnCode::SUCCESS) {
-            auto result = future_result.get();
-            RCLCPP_INFO(this->get_logger(), "路径运动执行完成");
-        } else {
-            RCLCPP_ERROR(this->get_logger(), "等待结果超时");
-        }
-        
-        // 标记运动完成
-        motion_completed_ = true;        
+        // 使用辅助函数发送运动请求
+        sendMotionGoal(goal_msg, "直线");        
     }
     
     void testArcMove() {
         RCLCPP_INFO(this->get_logger(), "测试圆弧运动");
-        
-        // 创建action客户端
-        auto action_client = rclcpp_action::create_client<motion_msgs::action::MovePath>(
-            this, "zmc_act/move_path");
-        
-        // 等待action服务器可用
-        if (!action_client->wait_for_action_server(std::chrono::seconds(10))) {
-            RCLCPP_ERROR(this->get_logger(), "Action服务器不可用，请先运行: ros2 run zmotion_driver zmotion_node");
-            RCLCPP_INFO(this->get_logger(), "检查Action服务器状态: ros2 action list");
-            return;
-        }
-        
-        RCLCPP_INFO(this->get_logger(), "Action服务器连接成功");
         
         // 创建路径运动的goal
         auto goal_msg = motion_msgs::action::MovePath::Goal();
@@ -233,102 +224,12 @@ private:
                    arc_segment.target_pos.x, arc_segment.target_pos.y, 
                    goal_msg.global_speed);
         
-        // 发送路径运动请求
-        RCLCPP_INFO(this->get_logger(), "发送圆弧运动请求");
-        
-        auto send_goal_options = rclcpp_action::Client<motion_msgs::action::MovePath>::SendGoalOptions();
-        
-        // 设置反馈回调
-        send_goal_options.feedback_callback = 
-            [this](rclcpp_action::ClientGoalHandle<motion_msgs::action::MovePath>::SharedPtr goal_handle,
-                   const std::shared_ptr<const motion_msgs::action::MovePath::Feedback> feedback) {
-                RCLCPP_INFO(this->get_logger(), "圆弧运动反馈: 当前段ID=%u, 进度=%.2f%%, 当前位置(%.2f, %.2f)", 
-                           feedback->current_segment_id, feedback->progress * 100,
-                           feedback->current_pos.x, feedback->current_pos.y);
-            };
-        
-        // 设置结果回调
-        send_goal_options.result_callback = 
-            [this](const rclcpp_action::ClientGoalHandle<motion_msgs::action::MovePath>::WrappedResult & result) {
-                switch (result.code) {
-                    case rclcpp_action::ResultCode::SUCCEEDED:
-                        if (result.result) {
-                            RCLCPP_INFO(this->get_logger(), "圆弧运动执行成功，完成段数: %d", result.result->last_completed_id);
-                        } else {
-                            RCLCPP_INFO(this->get_logger(), "圆弧运动执行成功");
-                        }
-                        break;
-                    case rclcpp_action::ResultCode::ABORTED:
-                        if (result.result) {
-                            RCLCPP_ERROR(this->get_logger(), "圆弧运动执行失败: %s", result.result->error_msg.c_str());
-                        } else {
-                            RCLCPP_ERROR(this->get_logger(), "圆弧运动执行失败");
-                        }
-                        break;
-                    case rclcpp_action::ResultCode::CANCELED:
-                        RCLCPP_WARN(this->get_logger(), "圆弧运动被取消");
-                        break;
-                    default:
-                        RCLCPP_ERROR(this->get_logger(), "圆弧运动未知结果");
-                        break;
-                }
-                
-                // 标记运动完成
-                motion_completed_ = true;
-            };
-        
-        // 发送goal
-        RCLCPP_INFO(this->get_logger(), "正在发送goal...");
-        auto future_goal_handle = action_client->async_send_goal(goal_msg, send_goal_options);
-        
-        // 等待goal被接受
-        RCLCPP_INFO(this->get_logger(), "等待goal被接受...");
-        if (rclcpp::spin_until_future_complete(this->shared_from_this(), future_goal_handle) != 
-            rclcpp::FutureReturnCode::SUCCESS) {
-            RCLCPP_ERROR(this->get_logger(), "发送goal失败，可能Action服务器没有响应");
-            return;
-        }
-        
-        auto goal_handle = future_goal_handle.get();
-        if (!goal_handle) {
-            RCLCPP_ERROR(this->get_logger(), "goal被拒绝，可能参数不完整或Action服务器验证失败");
-            RCLCPP_INFO(this->get_logger(), "可以尝试手动测试: ros2 action send_goal /zmc_act/move_path motion_msgs/action/MovePath \"{segments: [{type: 1, center_pos: {x: 50.0, y: 0.0}, target_pos: {x: 100.0, y: 0.0}}], global_speed: 50.0, laser_power: 0, start_segment_id: 0, corner_mode: 0}\" --feedback");
-            RCLCPP_INFO(this->get_logger(), "检查Action服务器日志以了解拒绝原因");
-            return;
-        }
-        
-        RCLCPP_INFO(this->get_logger(), "goal被接受，等待结果...");
-        
-        // 等待结果
-        auto future_result = action_client->async_get_result(goal_handle);
-        auto result_status = rclcpp::spin_until_future_complete(this->shared_from_this(), future_result);
-        
-        if (result_status == rclcpp::FutureReturnCode::SUCCESS) {
-            auto result = future_result.get();
-            RCLCPP_INFO(this->get_logger(), "圆弧运动执行完成");
-        } else {
-            RCLCPP_ERROR(this->get_logger(), "等待结果超时");
-        }
-        
-        // 标记运动完成
-        motion_completed_ = true;
+        // 使用辅助函数发送运动请求
+        sendMotionGoal(goal_msg, "圆弧");
     }
     
     void testCircMove() {
         RCLCPP_INFO(this->get_logger(), "测试画圆运动");
-        
-        // 创建action客户端
-        auto action_client = rclcpp_action::create_client<motion_msgs::action::MovePath>(
-            this, "zmc_act/move_path");
-        
-        // 等待action服务器可用
-        if (!action_client->wait_for_action_server(std::chrono::seconds(10))) {
-            RCLCPP_ERROR(this->get_logger(), "Action服务器不可用，请先运行: ros2 run zmotion_driver zmotion_node");
-            RCLCPP_INFO(this->get_logger(), "检查Action服务器状态: ros2 action list");
-            return;
-        }
-        
-        RCLCPP_INFO(this->get_logger(), "Action服务器连接成功");
         
         // 创建路径运动的goal
         auto goal_msg = motion_msgs::action::MovePath::Goal();
@@ -352,51 +253,83 @@ private:
                    50.0,  // 半径（圆心到起点/终点的距离）
                    goal_msg.global_speed);
         
+        // 使用辅助函数发送运动请求
+        sendMotionGoal(goal_msg, "画圆");
+    }
+
+    void testElliMove() {
+        RCLCPP_INFO(this->get_logger(), "测试椭圆运动");
+        
+        // 创建action客户端
+        auto action_client = rclcpp_action::create_client<motion_msgs::action::MovePath>(
+            this, "zmc_act/move_path");
+        
+        // 等待action服务器可用
+        if (!action_client->wait_for_action_server(std::chrono::seconds(10))) {
+            RCLCPP_ERROR(this->get_logger(), "Action服务器不可用，请先运行: ros2 run zmotion_driver zmotion_node");
+            RCLCPP_INFO(this->get_logger(), "检查Action服务器状态: ros2 action list");
+            return;
+        }
+        
+        RCLCPP_INFO(this->get_logger(), "Action服务器连接成功");
+        
+        // 创建路径运动的goal
+        auto goal_msg = motion_msgs::action::MovePath::Goal();
+        
+        // 创建椭圆段
+        motion_msgs::msg::PathSegment ellipse_segment;
+        ellipse_segment.type = 2; // TYPE_ELLIPSE
+        ellipse_segment.center_pos.x = 50.0;  // 相对于起点的中心X坐标
+        ellipse_segment.center_pos.y = 0.0;   // 相对于起点的中心Y坐标
+        ellipse_segment.target_pos.x = 0.0;   // 相对于起点的终点X坐标（与起点相同）
+        ellipse_segment.target_pos.y = 0.1;   // 相对于起点的终点Y坐标（与起点相同）
+        ellipse_segment.axis1_radius = 50.0;  // 轴1半径
+        ellipse_segment.axis2_radius = 30.0;  // 轴2半径
+        ellipse_segment.rot_direction = 0;    // 旋转方向：0-逆时针
+        
+        goal_msg.segments.push_back(ellipse_segment);
+        goal_msg.global_speed = 50.0;
+        goal_msg.laser_power = 0;
+        goal_msg.start_segment_id = 0;
+        goal_msg.corner_mode = 0;
+        
+        RCLCPP_INFO(this->get_logger(), "Goal参数: 椭圆段，中心相对(%.1f, %.1f)，轴半径(%.1f, %.1f)，旋转方向(%d)，速度%.1f", 
+                   ellipse_segment.center_pos.x, ellipse_segment.center_pos.y,
+                   ellipse_segment.axis1_radius, ellipse_segment.axis2_radius,
+                   ellipse_segment.rot_direction, goal_msg.global_speed);
+        
         // 发送路径运动请求
-        RCLCPP_INFO(this->get_logger(), "发送画圆运动请求");
+        RCLCPP_INFO(this->get_logger(), "发送椭圆运动请求");
         
         auto send_goal_options = rclcpp_action::Client<motion_msgs::action::MovePath>::SendGoalOptions();
+        
+        // 设置目标响应回调
+        send_goal_options.goal_response_callback = 
+            [this](rclcpp_action::ClientGoalHandle<motion_msgs::action::MovePath>::SharedPtr goal_handle) {
+                if (!goal_handle) {
+                    RCLCPP_ERROR(this->get_logger(), "椭圆运动目标被拒绝");
+                } else {
+                    RCLCPP_INFO(this->get_logger(), "椭圆运动目标被接受");
+                }
+            };
         
         // 设置反馈回调
         send_goal_options.feedback_callback = 
             [this](rclcpp_action::ClientGoalHandle<motion_msgs::action::MovePath>::SharedPtr goal_handle,
                    const std::shared_ptr<const motion_msgs::action::MovePath::Feedback> feedback) {
-                RCLCPP_INFO(this->get_logger(), "画圆运动反馈: 当前段ID=%u, 进度=%.2f%%, 当前位置(%.2f, %.2f)", 
-                           feedback->current_segment_id, feedback->progress * 100,
-                           feedback->current_pos.x, feedback->current_pos.y);
+                RCLCPP_INFO(this->get_logger(), "椭圆运动进度: 当前段ID %u", feedback->current_segment_id);
             };
         
         // 设置结果回调
         send_goal_options.result_callback = 
-            [this](const rclcpp_action::ClientGoalHandle<motion_msgs::action::MovePath>::WrappedResult & result) {
-                switch (result.code) {
-                    case rclcpp_action::ResultCode::SUCCEEDED:
-                        if (result.result) {
-                            RCLCPP_INFO(this->get_logger(), "画圆运动执行成功，完成段数: %d", result.result->last_completed_id);
-                        } else {
-                            RCLCPP_INFO(this->get_logger(), "画圆运动执行成功");
-                        }
-                        break;
-                    case rclcpp_action::ResultCode::ABORTED:
-                        if (result.result) {
-                            RCLCPP_ERROR(this->get_logger(), "画圆运动执行失败: %s", result.result->error_msg.c_str());
-                        } else {
-                            RCLCPP_ERROR(this->get_logger(), "画圆运动执行失败");
-                        }
-                        break;
-                    case rclcpp_action::ResultCode::CANCELED:
-                        RCLCPP_WARN(this->get_logger(), "画圆运动被取消");
-                        break;
-                    default:
-                        RCLCPP_ERROR(this->get_logger(), "画圆运动未知结果");
-                        break;
+            [this](const rclcpp_action::ClientGoalHandle<motion_msgs::action::MovePath>::WrappedResult& result) {
+                if (result.code == rclcpp_action::ResultCode::SUCCEEDED) {
+                    RCLCPP_INFO(this->get_logger(), "椭圆运动执行成功");
+                } else {
+                    RCLCPP_ERROR(this->get_logger(), "椭圆运动执行失败");
                 }
-                
-                // 标记运动完成
-                motion_completed_ = true;
             };
         
-        // 发送goal
         RCLCPP_INFO(this->get_logger(), "正在发送goal...");
         auto future_goal_handle = action_client->async_send_goal(goal_msg, send_goal_options);
         
@@ -411,7 +344,7 @@ private:
         auto goal_handle = future_goal_handle.get();
         if (!goal_handle) {
             RCLCPP_ERROR(this->get_logger(), "goal被拒绝，可能参数不完整或Action服务器验证失败");
-            RCLCPP_INFO(this->get_logger(), "可以尝试手动测试: ros2 action send_goal /zmc_act/move_path motion_msgs/action/MovePath \"{segments: [{type: 1, center_pos: {x: 50.0, y: 50.0}, target_pos: {x: 50.0, y: 50.0}}], global_speed: 30.0, laser_power: 0, start_segment_id: 0, corner_mode: 0}\" --feedback");
+            RCLCPP_INFO(this->get_logger(), "可以尝试手动测试: ros2 action send_goal /zmc_act/move_path motion_msgs/action/MovePath \"{segments: [{type: 2, center_pos: {x: 50.0, y: 0.0}, target_pos: {x: 0.0, y: 0.0}, axis1_radius: 50.0, axis2_radius: 30.0, rot_direction: 0}], global_speed: 50.0, laser_power: 0, start_segment_id: 0, corner_mode: 0}\" --feedback");
             RCLCPP_INFO(this->get_logger(), "检查Action服务器日志以了解拒绝原因");
             return;
         }
@@ -424,7 +357,7 @@ private:
         
         if (result_status == rclcpp::FutureReturnCode::SUCCESS) {
             auto result = future_result.get();
-            RCLCPP_INFO(this->get_logger(), "画圆运动执行完成");
+            RCLCPP_INFO(this->get_logger(), "椭圆运动执行完成");
         } else {
             RCLCPP_ERROR(this->get_logger(), "等待结果超时");
         }
@@ -488,6 +421,16 @@ private:
         RCLCPP_INFO(this->get_logger(), "发送路径运动请求");
         
         auto send_goal_options = rclcpp_action::Client<motion_msgs::action::MovePath>::SendGoalOptions();
+        
+        // 设置目标响应回调
+        send_goal_options.goal_response_callback = 
+            [this](rclcpp_action::ClientGoalHandle<motion_msgs::action::MovePath>::SharedPtr goal_handle) {
+                if (!goal_handle) {
+                    RCLCPP_ERROR(this->get_logger(), "路径运动目标被拒绝");
+                } else {
+                    RCLCPP_INFO(this->get_logger(), "路径运动目标被接受");
+                }
+            };
         
         // 设置反馈回调
         send_goal_options.feedback_callback = 
@@ -602,6 +545,7 @@ private:
         } else {
             RCLCPP_ERROR(this->get_logger(), "无法启动移动到0,0位置的命令");
         }
+        rclcpp::shutdown();
     }
     
     std::shared_ptr<ZmcController> controller_;
