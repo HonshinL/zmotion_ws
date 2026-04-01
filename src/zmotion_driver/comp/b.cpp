@@ -400,10 +400,6 @@ void ZmcController::executeMovePath(
             // 发布反馈
             goal_handle->publish_feedback(feedback);
             
-            // 输出服务器端反馈日志，便于调试
-            RCLCPP_INFO(this->get_logger(), "发布反馈: 进度=%.1f%%, 位置(%.2f, %.2f), 速度=%.2f", 
-                       progress * 100, x_pos, y_pos, feedback->current_velocity);
-            
             if (!all_completed) {
                 std::this_thread::sleep_for(std::chrono::milliseconds(100));
                 wait_count++;
