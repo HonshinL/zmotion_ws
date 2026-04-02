@@ -605,8 +605,8 @@ void ZmcController::initROS() {
     this->declare_parameter<std::vector<int64_t>>("auto_homing_axes", {0});
     this->declare_parameter<std::vector<double>>("auto_homing_timeout", {60.0, 60.0, 60.0, 60.0, 60.0});
     this->declare_parameter<std::vector<int64_t>>("axis_homing_mode", {11, 11, 11, 11, 11});
-    this->declare_parameter<std::vector<double>>("axis_homing_velocity_high", {50.0, 50.0, 50.0, 50.0, 50.0});
-    this->declare_parameter<std::vector<double>>("axis_homing_velocity_low", {10.0, 10.0, 10.0, 10.0, 10.0});
+    this->declare_parameter<std::vector<double>>("axis_homing_velocity_high", {50.0, 0.0, 0.0, 50.0, 50.0});
+    this->declare_parameter<std::vector<double>>("axis_homing_velocity_low", {50.0, 0.0, 0.0, 10.0, 10.0});
     this->declare_parameter<std::vector<double>>("axis_homing_velocity_creep", {5.0, 5.0, 5.0, 5.0, 5.0});
     this->declare_parameter<std::vector<double>>("axis_homing_timeout", {60.0, 60.0, 60.0, 60.0, 60.0});
     
@@ -710,6 +710,7 @@ void ZmcController::start() {
             RCLCPP_DEBUG(this->get_logger(), "回零后移动逻辑已集成到homeAxes函数中");
             
             // 启动数据发布
+            initializeAxisParameters();
             startPublishing();
             
             RCLCPP_INFO(this->get_logger(), "🚀 控制器已启动并开始发布数据");
@@ -1727,6 +1728,7 @@ bool ZmcController::homeAxes(const std::vector<int64_t>& axes) {
         
         // 获取轴在holding_axes中的索引
         int64_t holding_index = getAxisHoldingIndex(axis);
+        ZAux_Direct_Single_Cancel(handle_, static_cast<int>(axis), 2);
         
         // 获取回零模式
         int64_t homing_mode = 11;
@@ -1944,6 +1946,7 @@ void ZmcController::initializeAxisParameters() {
         }
         
         // 设置软限位
+        ZAux_Direct_Single_Cancel(handle_, static_cast<int>(axis), 2);
         if (hold_idx < soft_limit_forward.size() && hold_idx < soft_limit_reverse.size()) {
             // 设置正向软限位
             if (checkError(ZAux_Direct_SetFsLimit(handle_, axis, soft_limit_forward[hold_idx]))) {
@@ -1965,7 +1968,16 @@ void ZmcController::initializeAxisParameters() {
     } else {
         RCLCPP_ERROR(this->get_logger(), "轴2叠加到轴1设置失败");
     }
-    
+    if (checkError(ZAux_Direct_Connect(handle_, 131, 5, 0))) {
+            RCLCPP_INFO(this->get_logger(), "轴2叠加到轴1设置成功");
+        } else {
+            RCLCPP_ERROR(this->get_logger(), "轴2叠加到轴1设置失败");
+        }
+    if (checkError(ZAux_Direct_Connect(handle_, 131, 4, 2))) {
+            RCLCPP_INFO(this->get_logger(), "轴2叠加到轴1设置成功");
+        } else {
+            RCLCPP_ERROR(this->get_logger(), "轴2叠加到轴1设置失败");
+        }
     RCLCPP_INFO(this->get_logger(), "轴参数初始化完成");
 }
 
@@ -2073,7 +2085,7 @@ void ZmcController::setAxisHomeParameters() {
         
         // 设置默认值
         float velocity_high = 50.0;
-        float velocity_low = 10.0;
+        float velocity_low = 50.0;
         float velocity_creep = 5.0;
         
         // 获取轴在holding_axes中的索引
